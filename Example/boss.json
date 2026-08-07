@@ -1,0 +1,12 @@
+{
+    "name": "MirExample",
+    "description": "Mir example",
+    "version": "1.0.0",
+    "homepage": "",
+    "mainsrc": "./source",
+    "browsingpath": "",
+    "projects": [],
+    "dependencies": {
+        "github.com/semahr/mir": ">0.0.0"
+    }
+}

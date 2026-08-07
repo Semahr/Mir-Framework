@@ -6,6 +6,9 @@ _*
 .vs/
 .idea/
 
+/modules
+*/**/modules
+
 *.dproj.local
 *.identcache
 *.skincfg

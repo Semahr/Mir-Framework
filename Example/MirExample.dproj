@@ -1,17 +1,27 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
-        <ProjectGuid>{DEE606B9-39A9-4C48-BFA2-5B43DA65311D}</ProjectGuid>
+        <ProjectGuid>{8D694864-C256-455F-9E77-A6C9090618FD}</ProjectGuid>
         <ProjectVersion>20.2</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
-        <ProjectName Condition="'$(ProjectName)'==''">DelphiBackendFramework</ProjectName>
+        <ProjectName Condition="'$(ProjectName)'==''">MirExample</ProjectName>
         <TargetedPlatforms>1</TargetedPlatforms>
         <AppType>Console</AppType>
-        <MainSource>DelphiBackendFramework.dpr</MainSource>
+        <MainSource>MirExample.dpr</MainSource>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Android' and '$(Base)'=='true') or '$(Base_Android)'!=''">
+        <Base_Android>true</Base_Android>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Android64' and '$(Base)'=='true') or '$(Base_Android64)'!=''">
+        <Base_Android64>true</Base_Android64>
+        <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="('$(Platform)'=='Linux64' and '$(Base)'=='true') or '$(Base_Linux64)'!=''">
@@ -54,7 +64,65 @@
         <DCC_F>false</DCC_F>
         <DCC_K>false</DCC_K>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
-        <SanitizedProjectName>DelphiBackendFramework</SanitizedProjectName>
+        <SanitizedProjectName>MirExample</SanitizedProjectName>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Android)'!=''">
+        <Android_LauncherIcon36>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_36x36.png</Android_LauncherIcon36>
+        <Android_LauncherIcon48>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_48x48.png</Android_LauncherIcon48>
+        <Android_LauncherIcon72>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_72x72.png</Android_LauncherIcon72>
+        <Android_LauncherIcon96>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_96x96.png</Android_LauncherIcon96>
+        <Android_LauncherIcon144>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_144x144.png</Android_LauncherIcon144>
+        <Android_LauncherIcon192>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_192x192.png</Android_LauncherIcon192>
+        <Android_SplashImage426>$(BDS)\bin\Artwork\Android\FM_SplashImage_426x320.png</Android_SplashImage426>
+        <Android_SplashImage470>$(BDS)\bin\Artwork\Android\FM_SplashImage_470x320.png</Android_SplashImage470>
+        <Android_SplashImage640>$(BDS)\bin\Artwork\Android\FM_SplashImage_640x480.png</Android_SplashImage640>
+        <Android_SplashImage960>$(BDS)\bin\Artwork\Android\FM_SplashImage_960x720.png</Android_SplashImage960>
+        <IncludeAndroid_AdaptiveIcon>true</IncludeAndroid_AdaptiveIcon>
+        <IncludeAndroid_VectorizedSplash>true</IncludeAndroid_VectorizedSplash>
+        <Android_AdaptiveIconMonochrome>$(BDS)\bin\Artwork\Android\FM_AdaptiveIcon_Monochrome.xml</Android_AdaptiveIconMonochrome>
+        <Android_AdaptiveIconForeground>$(BDS)\bin\Artwork\Android\FM_AdaptiveIcon_Foreground.xml</Android_AdaptiveIconForeground>
+        <Android_AdaptiveIconBackground>$(BDS)\bin\Artwork\Android\FM_AdaptiveIcon_Background.xml</Android_AdaptiveIconBackground>
+        <Android_VectorizedSplash>$(BDS)\bin\Artwork\Android\FM_VectorizedSplash.xml</Android_VectorizedSplash>
+        <Android_VectorizedSplashDark>$(BDS)\bin\Artwork\Android\FM_VectorizedSplashDark.xml</Android_VectorizedSplashDark>
+        <Android_VectorizedSplashV31>$(BDS)\bin\Artwork\Android\FM_VectorizedSplashV31.xml</Android_VectorizedSplashV31>
+        <Android_VectorizedSplashV31Dark>$(BDS)\bin\Artwork\Android\FM_VectorizedSplashV31Dark.xml</Android_VectorizedSplashV31Dark>
+        <Android_NotificationIcon24>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_24x24.png</Android_NotificationIcon24>
+        <Android_NotificationIcon36>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_36x36.png</Android_NotificationIcon36>
+        <Android_NotificationIcon48>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_48x48.png</Android_NotificationIcon48>
+        <Android_NotificationIcon72>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_72x72.png</Android_NotificationIcon72>
+        <Android_NotificationIcon96>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_96x96.png</Android_NotificationIcon96>
+        <IncludeAndroid_NotificationAccentColor>false</IncludeAndroid_NotificationAccentColor>
+        <IncludeAndroid_VectorizedNotificationIcon>true</IncludeAndroid_VectorizedNotificationIcon>
+        <Android_VectorizedNotificationIcon>$(BDS)\bin\Artwork\Android\FM_VectorizedNotificationIcon.xml</Android_VectorizedNotificationIcon>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Android64)'!=''">
+        <Android_LauncherIcon36>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_36x36.png</Android_LauncherIcon36>
+        <Android_LauncherIcon48>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_48x48.png</Android_LauncherIcon48>
+        <Android_LauncherIcon72>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_72x72.png</Android_LauncherIcon72>
+        <Android_LauncherIcon96>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_96x96.png</Android_LauncherIcon96>
+        <Android_LauncherIcon144>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_144x144.png</Android_LauncherIcon144>
+        <Android_LauncherIcon192>$(BDS)\bin\Artwork\Android\FM_LauncherIcon_192x192.png</Android_LauncherIcon192>
+        <Android_SplashImage426>$(BDS)\bin\Artwork\Android\FM_SplashImage_426x320.png</Android_SplashImage426>
+        <Android_SplashImage470>$(BDS)\bin\Artwork\Android\FM_SplashImage_470x320.png</Android_SplashImage470>
+        <Android_SplashImage640>$(BDS)\bin\Artwork\Android\FM_SplashImage_640x480.png</Android_SplashImage640>
+        <Android_SplashImage960>$(BDS)\bin\Artwork\Android\FM_SplashImage_960x720.png</Android_SplashImage960>
+        <IncludeAndroid_AdaptiveIcon>true</IncludeAndroid_AdaptiveIcon>
+        <IncludeAndroid_VectorizedSplash>true</IncludeAndroid_VectorizedSplash>
+        <Android_AdaptiveIconMonochrome>$(BDS)\bin\Artwork\Android\FM_AdaptiveIcon_Monochrome.xml</Android_AdaptiveIconMonochrome>
+        <Android_AdaptiveIconForeground>$(BDS)\bin\Artwork\Android\FM_AdaptiveIcon_Foreground.xml</Android_AdaptiveIconForeground>
+        <Android_AdaptiveIconBackground>$(BDS)\bin\Artwork\Android\FM_AdaptiveIcon_Background.xml</Android_AdaptiveIconBackground>
+        <Android_VectorizedSplash>$(BDS)\bin\Artwork\Android\FM_VectorizedSplash.xml</Android_VectorizedSplash>
+        <Android_VectorizedSplashDark>$(BDS)\bin\Artwork\Android\FM_VectorizedSplashDark.xml</Android_VectorizedSplashDark>
+        <Android_VectorizedSplashV31>$(BDS)\bin\Artwork\Android\FM_VectorizedSplashV31.xml</Android_VectorizedSplashV31>
+        <Android_VectorizedSplashV31Dark>$(BDS)\bin\Artwork\Android\FM_VectorizedSplashV31Dark.xml</Android_VectorizedSplashV31Dark>
+        <Android_NotificationIcon24>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_24x24.png</Android_NotificationIcon24>
+        <Android_NotificationIcon36>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_36x36.png</Android_NotificationIcon36>
+        <Android_NotificationIcon48>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_48x48.png</Android_NotificationIcon48>
+        <Android_NotificationIcon72>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_72x72.png</Android_NotificationIcon72>
+        <Android_NotificationIcon96>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_96x96.png</Android_NotificationIcon96>
+        <IncludeAndroid_NotificationAccentColor>false</IncludeAndroid_NotificationAccentColor>
+        <IncludeAndroid_VectorizedNotificationIcon>true</IncludeAndroid_VectorizedNotificationIcon>
+        <Android_VectorizedNotificationIcon>$(BDS)\bin\Artwork\Android\FM_VectorizedNotificationIcon.xml</Android_VectorizedNotificationIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Linux64)'!=''">
         <DCC_UsePackage>DataSnapServer;fmx;emshosting;DbxCommonDriver;bindengine;FireDACCommonODBC;emsclient;FireDACCommonDriver;IndyProtocols;dbxcds;emsedge;inetdb;FireDACSqliteDriver;DbxClientDriver;FireDACASADriver;soapmidas;dbexpress;FireDACInfxDriver;inet;DataSnapCommon;dbrtl;FireDACOracleDriver;CustomIPTransport;FireDACMSSQLDriver;DataSnapIndy10ServerTransport;DataSnapConnectors;FireDACMongoDBDriver;IndySystem;FireDACTDataDriver;bindcomp;FireDACCommon;DataSnapServerMidas;FireDACODBCDriver;emsserverresource;inetstn;IndyCore;RESTBackendComponents;rtl;FireDACMySQLDriver;FireDACADSDriver;RESTComponents;dsnapxml;DataSnapClient;DataSnapFireDAC;emsclientfiredac;FireDACPgDriver;FireDAC;xmlrtl;dsnap;CloudService;FireDACDb2Driver;DataSnapNativeClient;DatasnapConnectorsFreePascal;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
@@ -98,90 +166,6 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Source\Core\Container.DependencyDescriptor.pas"/>
-        <DCCReference Include="Source\Core\Container.App.pas"/>
-        <DCCReference Include="Source\Core\Container.Scope.pas"/>
-        <DCCReference Include="Source\Core\AppExceptions.pas"/>
-        <DCCReference Include="Source\Http\HttpExceptions.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Attributes.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Binder.Port.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Binder.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Metadata.pas"/>
-        <DCCReference Include="Source\Dto\Dto.TypeInspector.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Validation.Context.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Validation.BooleanValidator.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Validation.DateValidator.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Validation.NumberValidator.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Validation.RequiredValidator.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Validation.StringValidator.pas"/>
-        <DCCReference Include="Source\Http\Http.Controller.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.Middleware.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.Middleware.Descriptor.pas"/>
-        <DCCReference Include="Source\Http\Http.Middleware.Attributes.pas"/>
-        <DCCReference Include="Source\Http\Http.Middleware.Pipeline.pas"/>
-        <DCCReference Include="Source\Http\Http.EndpointAttributeHandler.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.Attributes.pas"/>
-        <DCCReference Include="Source\Http\Http.Cookies.pas"/>
-        <DCCReference Include="Source\Http\Http.Core.pas"/>
-        <DCCReference Include="Source\Http\Http.Context.pas"/>
-        <DCCReference Include="Source\Http\Http.RouteDescriptor.pas"/>
-        <DCCReference Include="Source\Http\Http.Router.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.ControllerScanner.pas"/>
-        <DCCReference Include="Source\Http\Http.ActionInvoker.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.Router.pas"/>
-        <DCCReference Include="Source\Http\Http.ActionInvoker.pas"/>
-        <DCCReference Include="Source\Http\Http.Server.pas"/>
-        <DCCReference Include="Source\Http\Http.Parameter.Attributes.pas"/>
-        <DCCReference Include="Source\Http\Http.Parameter.Binding.pas"/>
-        <DCCReference Include="Source\Http\Http.ParameterDescriptor.pas"/>
-        <DCCReference Include="Source\Http\Http.ActionMetadata.pas"/>
-        <DCCReference Include="Source\Http\Http.ValueConverter.pas"/>
-        <DCCReference Include="Source\Http\Http.BodyBinder.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.ParameterBinder.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.BodyBinder.pas"/>
-        <DCCReference Include="Source\Http\Http.ParameterBinder.pas"/>
-        <DCCReference Include="Source\Http\Http.Composition.pas"/>
-        <DCCReference Include="Source\Core\Env.Helpers.pas"/>
-        <DCCReference Include="Source\Core\Json.Helpers.pas"/>
-        <DCCReference Include="Source\Core\Path.Helpers.pas"/>
-        <DCCReference Include="Source\Core\RttiAttribute.Helpers.pas"/>
-        <DCCReference Include="Source\Core\Options.Port.pas"/>
-        <DCCReference Include="Example\Common\Ports\Logger.Port.pas"/>
-        <DCCReference Include="Example\Infrastructure\Logging\Logger.Options.pas"/>
-        <DCCReference Include="Example\Infrastructure\Logging\Logger.pas"/>
-        <DCCReference Include="Source\Core\App.Options.pas"/>
-        <DCCReference Include="Source\Core\App.Options.Loader.pas"/>
-        <DCCReference Include="Example\Presentation\Controllers\Root.Controller.pas"/>
-        <DCCReference Include="Example\Domain\Jwt.Entity.pas"/>
-        <DCCReference Include="Example\Domain\Role.pas"/>
-        <DCCReference Include="Example\Bootstrap.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Binder.Context.pas"/>
-        <DCCReference Include="Source\Dto\Dto.Port.pas"/>
-        <DCCReference Include="Example\Presentation\Contracts\SignIn.Request.Dto.pas"/>
-        <DCCReference Include="Example\Presentation\Contracts\SignIn.Response.Dto.pas"/>
-        <DCCReference Include="Example\Application\UseCases\SignIn.UseCase.pas"/>
-        <DCCReference Include="Example\Application\Ports\SignIn.UseCase.Port.pas"/>
-        <DCCReference Include="Example\Application\Ports\ActivateReport.UseCase.Port.pas"/>
-        <DCCReference Include="Example\Application\Ports\DeactivateReport.UseCase.Port.pas"/>
-        <DCCReference Include="Example\Application\UseCases\DeactivateReport.UseCase.pas"/>
-        <DCCReference Include="Example\Application\UseCases\ActivateReport.UseCase.pas"/>
-        <DCCReference Include="Example\Presentation\Contracts\ActivateReport.Dto.pas"/>
-        <DCCReference Include="Example\Presentation\Contracts\DeactivateReport.Dto.pas"/>
-        <DCCReference Include="Example\Presentation\Contracts\Success.Dto.pas"/>
-        <DCCReference Include="Example\Presentation\Controllers\Utils.Controller.pas"/>
-        <DCCReference Include="Example\Application\Ports\Jwt.Service.Port.pas"/>
-        <DCCReference Include="Source\Http\Http.Server.Options.pas"/>
-        <DCCReference Include="Source\Core\Options.Registry.pas"/>
-        <DCCReference Include="Source\Core\Dependency.Attributes.pas"/>
-        <DCCReference Include="Example\Application\Ports\Pui.Port.pas"/>
-        <DCCReference Include="Example\Application\Contracts\Report.Dto.pas"/>
-        <DCCReference Include="Example\Application\Contracts\Match.Dto.pas"/>
-        <DCCReference Include="Example\Application\Contracts\Event.Dto.pas"/>
-        <DCCReference Include="Example\Infrastructure\Pui\Pui.pas"/>
-        <DCCReference Include="Example\Infrastructure\Pui\Pui.Options.pas"/>
-        <DCCReference Include="Example\Infrastructure\Pui\Contracts\PuiSignIn.Dto.pas"/>
-        <DCCReference Include="Example\Common\Exceptions\CustomExceptions.pas"/>
-        <DCCReference Include="Example\Application\Contracts\FinalizeSearch.Dto.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -200,7 +184,7 @@
         <BorlandProject>
             <Delphi.Personality>
                 <Source>
-                    <Source Name="MainSource">DelphiBackendFramework.dpr</Source>
+                    <Source Name="MainSource">MirExample.dpr</Source>
                 </Source>
             </Delphi.Personality>
             <Deployment Version="5">
@@ -219,9 +203,9 @@
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="Win32\Debug\DelphiBackendFramework.exe" Configuration="Debug" Class="ProjectOutput">
+                <DeployFile LocalName="Win32\Debug\MirExample.exe" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win32">
-                        <RemoteName>DelphiBackendFramework.exe</RemoteName>
+                        <RemoteName>MirExample.exe</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
@@ -1167,6 +1151,8 @@
                 <ProjectRoot Platform="Win64x" Name="$(PROJECTNAME)"/>
             </Deployment>
             <Platforms>
+                <Platform value="Android">False</Platform>
+                <Platform value="Android64">False</Platform>
                 <Platform value="Linux64">False</Platform>
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">False</Platform>

@@ -7,6 +7,6 @@
 	"browsingpath": "",
 	"projects": [],
 	"dependencies": {
-		"github.com/semahr/mir": ">0.0.0"
+		"github.com/semahr/mir": "^v0.1.0"
 	}
 }

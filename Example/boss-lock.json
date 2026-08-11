@@ -1,11 +1,11 @@
 {
 	"hash": "d41d8cd98f00b204e9800998ecf8427e",
-	"updated": "2026-08-11T08:39:22-06:00",
+	"updated": "2026-08-11T08:48:06-06:00",
 	"installedModules": {
 		"github.com/semahr/mir": {
 			"name": "github_com_semahr_mir",
-			"version": "main",
-			"hash": "730614e1b7103ce70457ab1b25f32642",
+			"version": "v0.1.0",
+			"hash": "5174f21b467f87efabc7d37298d38629",
 			"artifacts": {}
 		}
 	}

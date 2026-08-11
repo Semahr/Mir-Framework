@@ -6,6 +6,7 @@ program MirExample;
 
 uses
   System.SysUtils,
+  Horse,
   Container.App,
   Http.Composition,
   Http.Server;

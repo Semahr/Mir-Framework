@@ -78,12 +78,16 @@ begin
   try
     Routes := Scanner.Execute(AContainer.GetControllerTypes);
 
-    Writeln('HTTP Routes:');
-    for var Route in Routes do
-      Writeln(Format(
-        '%s  %-5s %s %s %s',
-        [#27'[32m', Route.Method, #27'[36m', Route.Path, #27'[0m']
-      ));
+    if Routes.Count > 0 then
+    begin
+      Writeln('HTTP Routes:');
+
+      for var Route in Routes do
+        Writeln(Format(
+          '%s  %-5s %s %s %s',
+          [#27'[32m', Route.Method, #27'[36m', Route.Path, #27'[0m']
+        ));
+    end;
   finally
     Scanner.Free;
   end;

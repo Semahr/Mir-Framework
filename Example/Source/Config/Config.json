@@ -1,1 +1,9 @@
-{}
+{
+  "HttpServer": {
+    "Port": 4000
+  },
+  "Logger": {
+    "LogLevel": "Debug",
+    "FilePath": "./Logs/App.log"
+  }
+}

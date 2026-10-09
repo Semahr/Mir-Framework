@@ -1,8 +1,8 @@
 {
 	"name": "Mir",
 	"description": "Mir is a Delphi HTTP backend framework that provides dependency injection, attribute-based routing, DTO binding and validation, middleware pipelines, typed configuration options, logging, and structured HTTP response handling for building backend services.",
-	"version": "0.1.0",
-	"homepage": "https://github.com/semahr/mir",
+	"version": "0.1.1",
+	"homepage": "https://github.com/semahr/mir-framework",
 	"mainsrc": "./Source",
 	"browsingpath": "Source/Core;Source/Http;Source/Dto",
 	"projects": [],

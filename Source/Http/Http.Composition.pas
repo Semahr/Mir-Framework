@@ -7,7 +7,8 @@ uses
   Container.App,
   Http.RouteDescriptor,
   Http.Router.Port,
-  Http.Server;
+  Http.Server,
+  Http.ErrorResponse.Port;
 
 type
   THttpComposition = class sealed
@@ -16,9 +17,16 @@ type
   public
     class function CreateDefaultRouter(const ARoutes: TObjectList<TRouteDescriptor>; const AContainer: TAppContainer): IRouter; static;
 
-    class function CreateDefaultServer(const ARoutes: TObjectList<TRouteDescriptor>; const AContainer: TAppContainer): THttpServer; overload; static;
+    class function CreateDefaultServer(
+      const ARoutes: TObjectList<TRouteDescriptor>;
+      const AContainer: TAppContainer;
+      const AErrorRenderer: IErrorResponseRenderer = nil
+    ): THttpServer; overload; static;
 
-    class function CreateDefaultServer(const AContainer: TAppContainer): THttpServer; overload; static;
+    class function CreateDefaultServer(
+      const AContainer: TAppContainer;
+      const AErrorRenderer: IErrorResponseRenderer = nil
+    ): THttpServer; overload; static;
   end;
 
 implementation
@@ -50,7 +58,11 @@ begin
   Result := TRouter.Create(ARoutes, ActionInvoker, AContainer);
 end;
 
-class function THttpComposition.CreateDefaultServer(const ARoutes: TObjectList<TRouteDescriptor>; const AContainer: TAppContainer): THttpServer;
+class function THttpComposition.CreateDefaultServer(
+  const ARoutes: TObjectList<TRouteDescriptor>;
+  const AContainer: TAppContainer;
+  const AErrorRenderer: IErrorResponseRenderer
+): THttpServer;
 var
   Options: THttpServerOptions;
   Port: Integer;
@@ -63,10 +75,17 @@ begin
     DefaultHttpPort
   );
 
-  Result := THttpServer.Create(Port, THttpComposition.CreateDefaultRouter(ARoutes, AContainer));
+  Result := THttpServer.Create(
+    Port,
+    THttpComposition.CreateDefaultRouter(ARoutes, AContainer),
+    AErrorRenderer
+  );
 end;
 
-class function THttpComposition.CreateDefaultServer(const AContainer: TAppContainer): THttpServer;
+class function THttpComposition.CreateDefaultServer(
+  const AContainer: TAppContainer;
+  const AErrorRenderer: IErrorResponseRenderer
+): THttpServer;
 var
   Scanner: TControllerScanner;
   Routes: TObjectList<TRouteDescriptor>;
@@ -93,7 +112,11 @@ begin
   end;
 
   try
-    Result := THttpComposition.CreateDefaultServer(Routes, AContainer);
+    Result := THttpComposition.CreateDefaultServer(
+      Routes,
+      AContainer,
+      AErrorRenderer
+    );
   except
     Routes.Free;
     raise;

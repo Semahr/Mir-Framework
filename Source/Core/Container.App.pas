@@ -96,6 +96,12 @@ type
     destructor Destroy; override;
 
     /// <summary>
+    /// Loads the default configuration merged with the specified override file.
+    /// Call during bootstrap, before resolving services that consume options.
+    /// </summary>
+    procedure LoadOptions(const AFilePath: string);
+
+    /// <summary>
     /// Returns the controller classes registered through AddController.
     /// </summary>
     /// <remarks>
@@ -673,6 +679,19 @@ end;
 procedure TAppContainer.AddScoped<TDependency, TImplementation>;
 begin
   AddScoped(TypeInfo(TDependency), GetClassType(TypeInfo(TImplementation)));
+end;
+
+procedure TAppContainer.LoadOptions(const AFilePath: string);
+begin
+  if AFilePath.Trim.IsEmpty then
+    raise EInvalidDependencyException.Create('Options file path is required.');
+
+  SetOptionsLoader(
+    function: TJSONObject
+    begin
+      Result := TAppOptionsLoader.LoadFromFile(AFilePath);
+    end
+  );
 end;
 
 procedure TAppContainer.SetOptionsLoader(const ALoader: TOptionsValueLoader);

@@ -158,7 +158,37 @@ TAppOptionsLoader.Execute
 
 It loads a JSON object from the default configuration file, optionally merging an override file from `APP_OPTIONS_FILE_PATH`.
 
-The container calls the loader through `TOptionsRegistry.EnsureLoaded` and loads options only once.
+The container calls the loader through `TOptionsRegistry.EnsureLoaded` and caches
+its result until a new loader is configured.
+
+### Selecting a configuration file explicitly
+
+Use `LoadOptions` during bootstrap to select an override file in code:
+
+```pascal
+App := TAppContainer.Create;
+try
+  App.LoadOptions('./Config/Config.production.json');
+  App.AddOptions<TLoggerOptions>;
+  // Register and resolve application services after selecting the configuration.
+finally
+  App.Free;
+end;
+```
+
+This delegates to `TAppOptionsLoader.LoadFromFile`: it reads
+`./Config/Config.json` and recursively merges the specified file over it. Values
+in the specified file win; nested JSON objects are merged. The default file is
+still required. An empty or whitespace-only path is rejected.
+
+The explicit load does not consult `APP_OPTIONS_FILE_PATH`. However, the
+constructor still performs its original default/environment-based load before
+`LoadOptions` can be called, so that initial configuration must also be valid.
+
+Loading is immediate and rematerializes registered option sections, including
+`THttpServerOptions`. Call this before resolving services or starting the server:
+previously obtained option objects/interfaces can become invalid when replaced.
+This is a startup configuration API, not a hot-reload mechanism.
 
 ## Registering sections
 
@@ -220,13 +250,14 @@ App.AddOptions<TLoggerOptions>;
 
 ## Loading and registration behavior
 
-Options are loaded automatically when the container first needs registered dependencies or descriptors.
+The constructor configures the default loader, which loads options immediately.
+Setting another loader (including through `LoadOptions`) triggers another load.
 
 The flow is:
 
 ```mermaid
 flowchart TD
-    A[First dependency resolution] --> B[EnsureLoaded]
+    A[SetOptionsLoader during construction or explicit configuration] --> B[EnsureLoaded]
     B --> C[Run root JSON loader once]
     C --> D[Register IOptions<TJSONObject>]
     D --> E[Run registered section materializers]

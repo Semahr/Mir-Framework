@@ -10,7 +10,7 @@ type
   TAppOptionsLoader = class sealed
   private
 //    const DefaultOptionsFilePath = './Config/Config.json';
-    const DefaultOptionsFilePath = 'C:/Users/Jugh/Documents/Projects/DesarrolloCPCC/BackendFramework/Config/Config.json';
+    const DefaultOptionsFilePath = 'C:/Dev/PUIConnector/Config.json';
 
     class function LoadJsonObjectFromFile(const AFilePath: string): TJSONObject; static;
     class function CloneJsonValue(const AValue: TJSONValue): TJSONValue; static;

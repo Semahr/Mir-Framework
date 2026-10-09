@@ -236,7 +236,7 @@ end;
 function TRouter.InvokeRoute(const ARoute: TRouteDescriptor; const ARequest: TRequest): TResponse;
 begin
   var Scope := FContainer.CreateScope;
-  var Context := TContext.Create(ARequest, Scope);
+  var Context := TContext.Create(ARequest, Scope, ARoute.ActionAttributes, ARoute.ControllerAttributes);
   try
     Result := FMiddlewarePipeline.Execute(
       Context,

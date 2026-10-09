@@ -1,6 +1,15 @@
 # Custom Attributes
 
-Custom endpoint attributes are supported through attribute handlers.
+Custom attributes can be used in three ways:
+
+- Inherit from `UseMiddlewareAttribute` to select an existing middleware under a
+  custom name, without modifying that middleware. See
+  [Custom middleware attributes](./08-middlewares.md#custom-middleware-attributes)
+  for a complete `ProtectedAttribute` example. No attribute handler is required.
+- Declare metadata that a middleware reads with `TContext.TryGetAttribute<T>`.
+  See [Reading endpoint metadata](./08-middlewares.md#reading-endpoint-metadata).
+- Register an `IEndpointAttributeHandler` to interpret an attribute during the
+  attribute-handler stage. The rest of this page describes this approach.
 
 Relevant unit:
 

@@ -15,8 +15,10 @@ type
   private
     FServer: TIdHTTPServer;
     FRouter: IRouter;
+    FErrorRenderer: IErrorResponseRenderer;
+    FDefaultErrorRenderer: IErrorResponseRenderer;
 
-    function ParseError(const Error: Exception): TResponse;
+    function RenderError(const AError: Exception): TResponse;
     function IsJsonContentType(const AContentType: string): Boolean;
     procedure EnsureSupportedContentType(const ARequestInfo: TIdHTTPRequestInfo);
 
@@ -30,7 +32,11 @@ type
 
     procedure WriteResponse(const AResponse: TResponse; const AResponseInfo: TIdHTTPResponseInfo);
   public
-    constructor Create(const APort: Integer; const ARouter: IRouter);
+    constructor Create(
+      const APort: Integer;
+      const ARouter: IRouter;
+      const AErrorRenderer: IErrorResponseRenderer = nil
+    );
     destructor Destroy; override;
 
     procedure Start;
@@ -47,9 +53,15 @@ uses
   System.Math,
   Http.Cookies,
   HttpExceptions,
-  AppExceptions;
+  AppExceptions,
+  Http.ErrorResponse,
+  Http.ErrorResponse.Port;
 
-constructor THttpServer.Create(const APort: Integer; const ARouter: IRouter);
+constructor THttpServer.Create(
+  const APort: Integer;
+  const ARouter: IRouter;
+  const AErrorRenderer: IErrorResponseRenderer
+);
 begin
   inherited Create;
 
@@ -57,6 +69,12 @@ begin
     raise EMissingDependencyException.Create('Router is required.');
 
   FRouter := ARouter;
+  FDefaultErrorRenderer := TDefaultErrorResponseRenderer.Create;
+
+  if AErrorRenderer <> nil then
+    FErrorRenderer := AErrorRenderer
+  else
+    FErrorRenderer := FDefaultErrorRenderer;
 
   FServer := TIdHTTPServer.Create(nil);
   FServer.DefaultPort := APort;
@@ -192,101 +210,14 @@ begin
     AResponseInfo.CustomHeaders.AddValue('Set-Cookie', TCookieSerializer.Serialize(Cookie));
 end;
 
-function THttpServer.ParseError(const Error: Exception): TResponse;
-var
-  StatusCode: Integer;
-  ErrorName: string;
-  Messages: TArray<string>;
+function THttpServer.RenderError(const AError: Exception): TResponse;
 begin
-  if Error is EHttpException then
-  begin
-    var HttpError := EHttpException(Error);
-
-    StatusCode := HttpError.StatusCode;
-    ErrorName := HttpError.ErrorName;
-    Messages := HttpError.Messages;
-  end
-  else if Error is EBadRequestAppException then
-  begin
-    StatusCode := 400;
-    ErrorName := 'Bad Request';
-    Messages := EBadRequestAppException(Error).Messages;
-  end
-  else if Error is EUnauthorizedAppException then
-  begin
-    StatusCode := 401;
-    ErrorName := 'Unauthorized';
-    Messages := [Error.Message];
-  end
-  else if Error is EForbiddenAppException then
-  begin
-    StatusCode := 403;
-    ErrorName := 'Forbidden';
-    Messages := [Error.Message];
-  end
-  else if Error is ENotFoundAppException then
-  begin
-    StatusCode := 404;
-    ErrorName := 'Not Found';
-    Messages := [Error.Message];
-  end
-  else if Error is EConflictAppException then
-  begin
-    StatusCode := 409;
-    ErrorName := 'Conflict';
-    Messages := [Error.Message];
-  end
-  else if Error is EBadGatewayAppException then
-  begin
-    StatusCode := 502;
-    ErrorName := 'Bad Gateway';
-    Messages := [Error.Message];
-  end
-  else if Error is EInfrastructureUnavailableException then
-  begin
-    StatusCode := 503;
-    ErrorName := 'Service Unavailable';
-    Messages := ['A required service is temporarily unavailable.'];
-  end
-  else if
-    (Error is EMissingAttributeException) or
-    (Error is EInvalidAttributeException) or
-    (Error is EUnexpectedAttributeException) or
-    (Error is EOutOfRangeAttributeException)
-  then
-  begin
-    StatusCode := 400;
-    ErrorName := 'Bad Request';
-    Messages := [Error.Message];
-  end
-  else if Error is EDependencyException then
-  begin
-    StatusCode := 500;
-    ErrorName := 'Internal Server Error';
-    Messages := ['Server dependency is not properly configured.'];
-  end
-  else if Error is EMetadataException then
-  begin
-    StatusCode := 500;
-    ErrorName := 'Internal Server Error';
-    Messages := ['Server metadata is not properly configured.'];
-  end
-  else if Error is EServiceException then
-  begin
-    StatusCode := 500;
-    ErrorName := 'Internal Server Error';
-    Messages := ['Unexpected service error.'];
-  end
-  else
-  begin
-    StatusCode := 500;
-    ErrorName := 'Internal Server Error';
-    Messages := ['Unexpected server error.'];
+  try
+    Result := FErrorRenderer.Render(AError);
+  except
+    on Exception do
+      Result := FDefaultErrorRenderer.Render(AError);
   end;
-
-  Result := TResponse.Create;
-  Result.StatusCode := StatusCode;
-  Result.Body := BuildHttpExceptionJson(StatusCode, ErrorName, Messages);
 end;
 
 procedure THttpServer.HandleCommand(
@@ -308,7 +239,7 @@ begin
       Response := FRouter.Dispatch(Request);
     except
       on Error: Exception do
-        Response := ParseError(Error);
+        Response := RenderError(Error);
     end;
 
     WriteResponse(Response, AResponseInfo);

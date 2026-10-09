@@ -223,7 +223,9 @@ begin
                     MethodInfo.Name,
                     Metadata.Parameters,
                     RouteMiddlewares,
-                    RouteAttributes
+                    RouteAttributes,
+                    ActionAttributes,
+                    ControllerAttributes
                   )
                 );
               finally

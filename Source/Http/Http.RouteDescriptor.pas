@@ -18,6 +18,8 @@ type
   /// </remarks>
   TRouteDescriptor = class
   private
+    // Attribute instances belong to the RTTI pool, not to the arrays holding them.
+    FRttiContext: TRttiContext;
     FMethod: string;
     FPath: string;
     FControllerType: TClass;
@@ -25,6 +27,8 @@ type
     FParameters: TArray<TParameterDescriptor>;
     FMiddlewares: TArray<TMiddlewareDescriptor>;
     FAttributes: TArray<TCustomAttribute>;
+    FActionAttributes: TArray<TCustomAttribute>;
+    FControllerAttributes: TArray<TCustomAttribute>;
   public
     /// <summary>
     /// Creates a route descriptor for one controller action.
@@ -41,8 +45,11 @@ type
       const AActionName: string;
       const AParameters: TArray<TParameterDescriptor>;
       const AMiddlewares: TArray<TMiddlewareDescriptor>;
-      const AAttributes: TArray<TCustomAttribute>
+      const AAttributes: TArray<TCustomAttribute>;
+      const AActionAttributes: TArray<TCustomAttribute> = nil;
+      const AControllerAttributes: TArray<TCustomAttribute> = nil
     );
+    destructor Destroy; override;
 
     /// <summary>
     /// HTTP verb required by this route. Stored uppercase to simplify request matching.
@@ -72,6 +79,8 @@ type
     property Middlewares: TArray<TMiddlewareDescriptor> read FMiddlewares;
 
     property Attributes: TArray<TCustomAttribute> read FAttributes;
+    property ActionAttributes: TArray<TCustomAttribute> read FActionAttributes;
+    property ControllerAttributes: TArray<TCustomAttribute> read FControllerAttributes;
   end;
 
 implementation
@@ -83,10 +92,14 @@ constructor TRouteDescriptor.Create(
   const AActionName: string;
   const AParameters: TArray<TParameterDescriptor>;
   const AMiddlewares: TArray<TMiddlewareDescriptor>;
-  const AAttributes: TArray<TCustomAttribute>
+  const AAttributes: TArray<TCustomAttribute>;
+  const AActionAttributes: TArray<TCustomAttribute>;
+  const AControllerAttributes: TArray<TCustomAttribute>
 );
 begin
   inherited Create;
+  // Acquire a reference while the scanner's context is still alive.
+  FRttiContext := TRttiContext.Create;
   FMethod := UpperCase(AMethod);
   FPath := APath;
   FControllerType := AControllerType;
@@ -94,5 +107,21 @@ begin
   FParameters := AParameters;
   FMiddlewares := AMiddlewares;
   FAttributes := AAttributes;
+  FActionAttributes := AActionAttributes;
+  FControllerAttributes := AControllerAttributes;
+
+  // Legacy callers supply only an unscoped attribute list.
+  if (AActionAttributes = nil) and (AControllerAttributes = nil) then
+    FActionAttributes := AAttributes;
 end;
+
+destructor TRouteDescriptor.Destroy;
+begin
+  FAttributes := nil;
+  FActionAttributes := nil;
+  FControllerAttributes := nil;
+  FRttiContext.Free;
+  inherited;
+end;
+
 end.

@@ -8,7 +8,8 @@ uses
   IdContext,
   IdCustomHTTPServer,
   Http.Core,
-  Http.Router.Port;
+  Http.Router.Port,
+  Http.ErrorResponse.Port;
 
 type
   THttpServer = class
@@ -16,7 +17,8 @@ type
     FServer: TIdHTTPServer;
     FRouter: IRouter;
     FErrorRenderer: IErrorResponseRenderer;
-    FDefaultErrorRenderer: IErrorResponseRenderer;
+    FEnvironment: string;
+
 
     function RenderError(const AError: Exception): TResponse;
     function IsJsonContentType(const AContentType: string): Boolean;
@@ -35,7 +37,8 @@ type
     constructor Create(
       const APort: Integer;
       const ARouter: IRouter;
-      const AErrorRenderer: IErrorResponseRenderer = nil
+      const AErrorRenderer: IErrorResponseRenderer = nil;
+      const AEnvironment: string = 'production'
     );
     destructor Destroy; override;
 
@@ -54,13 +57,13 @@ uses
   Http.Cookies,
   HttpExceptions,
   AppExceptions,
-  Http.ErrorResponse,
-  Http.ErrorResponse.Port;
+  Http.ErrorResponse;
 
 constructor THttpServer.Create(
   const APort: Integer;
   const ARouter: IRouter;
-  const AErrorRenderer: IErrorResponseRenderer
+  const AErrorRenderer: IErrorResponseRenderer;
+  const AEnvironment: string
 );
 begin
   inherited Create;
@@ -69,12 +72,8 @@ begin
     raise EMissingDependencyException.Create('Router is required.');
 
   FRouter := ARouter;
-  FDefaultErrorRenderer := TDefaultErrorResponseRenderer.Create;
-
-  if AErrorRenderer <> nil then
-    FErrorRenderer := AErrorRenderer
-  else
-    FErrorRenderer := FDefaultErrorRenderer;
+  FErrorRenderer := AErrorRenderer;
+  FEnvironment := AEnvironment;
 
   FServer := TIdHTTPServer.Create(nil);
   FServer.DefaultPort := APort;
@@ -212,12 +211,21 @@ end;
 
 function THttpServer.RenderError(const AError: Exception): TResponse;
 begin
-  try
-    Result := FErrorRenderer.Render(AError);
-  except
-    on Exception do
-      Result := FDefaultErrorRenderer.Render(AError);
+  if FErrorRenderer <> nil then
+  begin
+    try
+      Result := FErrorRenderer.Render(AError);
+      if Result <> nil then
+        Exit;
+    except
+      on Exception do
+      begin
+        // Preserve the original error when custom rendering fails.
+      end;
+    end;
   end;
+
+  Result := TDefaultErrorResponseRenderer.Render(AError, FEnvironment);
 end;
 
 procedure THttpServer.HandleCommand(

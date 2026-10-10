@@ -4,15 +4,12 @@ interface
 
 uses
   System.SysUtils,
-  Http.Core,
-  Http.ErrorResponse.Port;
+  Http.Core;
 
 type
-  TDefaultErrorResponseRenderer = class(TInterfacedObject, IErrorResponseRenderer)
-  private
-    function ParseError(const AError: Exception): TResponse;
+  TDefaultErrorResponseRenderer = class sealed
   public
-    function Render(const AError: Exception): TResponse;
+    class function Render(const AError: Exception; const AEnvironment: string = 'production'): TResponse; static;
   end;
 
 implementation
@@ -21,12 +18,7 @@ uses
   HttpExceptions,
   AppExceptions;
 
-function TDefaultErrorResponseRenderer.Render(const AError: Exception): TResponse;
-begin
-  Result := ParseError(AError);
-end;
-
-function TDefaultErrorResponseRenderer.ParseError(const AError: Exception): TResponse;
+class function TDefaultErrorResponseRenderer.Render(const AError: Exception; const AEnvironment: string): TResponse;
 var
   StatusCode: Integer;
   ErrorName: string;
@@ -80,7 +72,7 @@ begin
   begin
     StatusCode := 503;
     ErrorName := 'Service Unavailable';
-    Messages := ['A required service is temporarily unavailable.'];
+    Messages := [AError.Message];
   end
   else if
     (AError is EMissingAttributeException) or
@@ -93,11 +85,35 @@ begin
     ErrorName := 'Bad Request';
     Messages := [AError.Message];
   end
+  else if AError is EInvalidDependencyPropertyException then
+  begin
+    StatusCode := 500;
+    ErrorName := 'Internal Server Error';
+    Messages := ['Server dependency property is not properly configured.'];
+  end
+  else if AError is EMissingDependencyException then
+  begin
+    StatusCode := 500;
+    ErrorName := 'Internal Server Error';
+    Messages := ['Server dependency is not properly configured.'];
+  end
+  else if AError is EInvalidDependencyException then
+  begin
+    StatusCode := 500;
+    ErrorName := 'Internal Server Error';
+    Messages := ['Server dependency is not properly configured.'];
+  end
   else if AError is EDependencyException then
   begin
     StatusCode := 500;
     ErrorName := 'Internal Server Error';
     Messages := ['Server dependency is not properly configured.'];
+  end
+  else if AError is EActionNotAssignedException then
+  begin
+    StatusCode := 500;
+    ErrorName := 'Internal Server Error';
+    Messages := ['Server metadata is not properly configured.'];
   end
   else if AError is EMetadataException then
   begin
@@ -105,17 +121,41 @@ begin
     ErrorName := 'Internal Server Error';
     Messages := ['Server metadata is not properly configured.'];
   end
+  else if AError is EControllerException then
+  begin
+    StatusCode := 500;
+    ErrorName := 'Internal Server Error';
+    Messages := ['Unexpected service error.'];
+  end
   else if AError is EServiceException then
   begin
     StatusCode := 500;
     ErrorName := 'Internal Server Error';
     Messages := ['Unexpected service error.'];
   end
+  else if AError is EAppException then
+  begin
+    StatusCode := 500;
+    ErrorName := 'Internal Server Error';
+    Messages := ['Unexpected server error.'];
+  end
   else
   begin
     StatusCode := 500;
     ErrorName := 'Internal Server Error';
     Messages := ['Unexpected server error.'];
+  end;
+
+  if StatusCode = 500 then
+  begin
+    if SameText(AEnvironment.Trim, 'development') then
+      Messages := [AError.Message]
+    else if AError is EHttpException then
+    begin
+      // Explicit HTTP 500 errors must not bypass production sanitization.
+      ErrorName := 'Internal Server Error';
+      Messages := ['Unexpected server error.'];
+    end;
   end;
 
   Result := TResponse.Create;

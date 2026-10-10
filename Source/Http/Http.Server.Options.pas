@@ -19,6 +19,8 @@ type
 
 implementation
 
+{ THttpServerOptions }
+
 function THttpServerOptions.GetSectionName: string;
 begin
   Result := 'HttpServer';

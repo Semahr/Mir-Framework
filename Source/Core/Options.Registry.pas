@@ -21,8 +21,6 @@ type
     FRootLoader: TOptionsValueLoader;
     FRootValue: TJSONObject;
     FLoaded: Boolean;
-    FRootLoaded: Boolean;
-    FMaterializationStarted: Boolean;
     FDescriptorRegister: TOptionsDescriptorRegister;
 
     function Extract<T: TOptionsSection, constructor>(const ARootOptions: TJSONObject): T;
@@ -33,7 +31,6 @@ type
 
     procedure SetRootLoader(const ALoader: TOptionsValueLoader; const ADescriptorRegistrar: TOptionsDescriptorRegister);
     procedure Add<T: TOptionsSection, constructor>;
-    procedure LoadRoot;
     procedure EnsureLoaded;
 
     function GetGlobal: TJSONObject;
@@ -128,15 +125,11 @@ begin
   if not Assigned(ALoader) then
     raise EMissingDependencyException.Create('Options loader is required.');
 
-  if FMaterializationStarted then
-    raise EInvalidDependencyException.Create(
-      'Options configuration cannot be changed after options materialization has started. Configure options before resolving services.'
-    );
-
   FRootLoader := ALoader;
   FDescriptorRegister := ADescriptorRegistrar;
-  FRootLoaded := False;
   FLoaded := False;
+
+  EnsureLoaded;
 end;
 
 procedure TOptionsRegistry.Add<T>;
@@ -149,10 +142,6 @@ begin
   Materializer :=
     procedure
     begin
-      // Repeated registrations and retries must not invalidate published instances.
-      if FInstances.ContainsKey(TypeInfo(T)) then
-        Exit;
-
       ExtractedValue := Extract<T>(FRootValue);
       OptionsInstance := TOptions<T>.From(ExtractedValue);
       OptionsInterface := OptionsInstance;
@@ -170,23 +159,23 @@ begin
     Materializer();
 end;
 
-procedure TOptionsRegistry.LoadRoot;
+procedure TOptionsRegistry.EnsureLoaded;
 var
   OptionsInstance: TOptions<TJSONObject>;
   OptionsInterface: IOptions<TJSONObject>;
 begin
-  if FRootLoaded then
+  if FLoaded then
     Exit;
 
   if not Assigned(FRootLoader) then
-    raise EMissingDependencyException.Create('Options loader is required.');
+    Exit;
 
-  var RootValue := FRootLoader();
+  FRootValue := FRootLoader();
 
-  if RootValue = nil then
+  if FRootValue = nil then
     raise EMissingDependencyException.Create('Root options loader must return a JSON object.');
 
-  OptionsInstance := TOptions<TJSONObject>.Create(RootValue);
+  OptionsInstance := TOptions<TJSONObject>.Create(FRootValue);
   OptionsInterface := OptionsInstance;
   RegisterOptionsInstance(
     TypeInfo(IOptions<TJSONObject>),
@@ -194,18 +183,6 @@ begin
     OptionsInstance,
     TValue.From<IOptions<TJSONObject>>(OptionsInterface)
   );
-
-  FRootValue := RootValue;
-  FRootLoaded := True;
-end;
-
-procedure TOptionsRegistry.EnsureLoaded;
-begin
-  if FLoaded then
-    Exit;
-
-  LoadRoot;
-  FMaterializationStarted := True;
 
   for var Materializer in FSectionMaterializers do
     Materializer();

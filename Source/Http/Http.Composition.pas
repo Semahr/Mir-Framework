@@ -12,6 +12,8 @@ uses
 
 type
   THttpComposition = class sealed
+  const
+    DefaultHttpPort = 8080;
   public
     class function CreateDefaultRouter(const ARoutes: TObjectList<TRouteDescriptor>; const AContainer: TAppContainer): IRouter; static;
 
@@ -31,6 +33,7 @@ implementation
 
 uses
   System.SysUtils,
+  System.Math,
   AppExceptions,
   Dto.Binder,
   Dto.Binder.Port,
@@ -42,8 +45,7 @@ uses
   Http.BodyBinder.Port,
   Http.ParameterBinder,
   Http.ParameterBinder.Port,
-  Http.Server.Options,
-  App.Options;
+  Http.Server.Options;
 
 class function THttpComposition.CreateDefaultRouter(const ARoutes: TObjectList<TRouteDescriptor>; const AContainer: TAppContainer): IRouter;
 begin
@@ -62,29 +64,21 @@ class function THttpComposition.CreateDefaultServer(
   const AErrorRenderer: IErrorResponseRenderer
 ): THttpServer;
 var
+  Options: THttpServerOptions;
   Port: Integer;
-  Environment: string;
 begin
-  var HttpOptions := AContainer.GetOptions<THttpServerOptions>;
-  var AppOptions := AContainer.GetOptions<TApplicationOptions>;
+  Options := AContainer.GetOptions<THttpServerOptions>;
 
-  try
-    Port := HttpOptions.Port;
-    Environment := AppOptions.Environment;
-    if (Port < 1) or (Port > 65535) then
-      raise EInvalidDependencyException.Create(
-        'HttpServer.Port is required and must be an integer between 1 and 65535.'
-      );
-  finally
-    HttpOptions.Free;
-    AppOptions.Free;
-end;
+  Port := IfThen(
+    Options.Port > 0,
+    Options.Port,
+    DefaultHttpPort
+  );
 
   Result := THttpServer.Create(
     Port,
     THttpComposition.CreateDefaultRouter(ARoutes, AContainer),
-    AErrorRenderer,
-    Environment
+    AErrorRenderer
   );
 end;
 

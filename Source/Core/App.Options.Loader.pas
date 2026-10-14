@@ -18,6 +18,7 @@ type
     class function Execute: TAppOptions; static;
     class function LoadFromFile(const AFilePath: string): TAppOptions; static;
     class function LoadFromDefaultPath: TAppOptions; static;
+    class function LoadWithOverrides(const AFilePath: string): TAppOptions; static;
   end;
 
 implementation
@@ -34,7 +35,7 @@ var
   AppOptionsFilePath: string;
 begin
   if TEnv.TryGetString('APP_OPTIONS_FILE_PATH', AppOptionsFilePath) then
-    Exit(LoadFromFile(AppOptionsFilePath));
+    Exit(LoadWithOverrides(AppOptionsFilePath));
 
   Result := LoadFromDefaultPath;
 end;
@@ -50,6 +51,11 @@ begin
 end;
 
 class function TAppOptionsLoader.LoadFromFile(const AFilePath: string): TAppOptions;
+begin
+  Result := LoadJsonObjectFromFile(AFilePath);
+end;
+
+class function TAppOptionsLoader.LoadWithOverrides(const AFilePath: string): TAppOptions;
 begin
   var DefaultJson := LoadJsonObjectFromFile(DefaultOptionsFilePath);
   try

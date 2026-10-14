@@ -13,6 +13,7 @@ type
 
   EMissingDependencyException = class(EDependencyException);
   EInvalidDependencyException = class(EDependencyException);
+  EInvalidDependencyPropertyException = class(EDependencyException);
 
   EInfrastructureUnavailableException = class(EServiceException);
   EControllerException = class(EServiceException);

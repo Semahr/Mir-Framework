@@ -96,7 +96,7 @@ type
     destructor Destroy; override;
 
     /// <summary>
-    /// Loads the default configuration merged with the specified override file.
+    /// Immediately loads only the specified configuration file; section materialization is deferred.
     /// Call during bootstrap, before resolving services that consume options.
     /// </summary>
     procedure LoadOptions(const AFilePath: string);
@@ -184,7 +184,8 @@ type
     procedure AddScoped<TDependency; TImplementation: class>; overload;
 
     /// <summary>
-    /// Defines and immediately executes the root application options loader.
+    /// Defines the root application options loader without executing it.
+    /// Configuration changes are rejected once option materialization has started.
     /// </summary>
     /// <remarks>
     /// The loaded root JSON is cached by the options registry and reused by AddOptions and GetOptions.
@@ -192,7 +193,8 @@ type
     procedure SetOptionsLoader(const ALoader: TOptionsValueLoader);
 
     /// <summary>
-    /// Registers an options class and maps it from its JSON section.
+    /// Registers an options section without loading configuration before first use.
+    /// If options are already materialized, maps the new section immediately.
     /// </summary>
     procedure AddOptions<TOptions: TOptionsSection, constructor>;
 
@@ -272,7 +274,8 @@ uses
   Dependency.Attributes,
   Http.Middleware.Port,
   Http.EndpointAttributeHandler.Port,
-  Http.Server.Options;
+  Http.Server.Options,
+  App.Options;
 
 { TAppContainer }
 
@@ -289,6 +292,7 @@ begin
   SetOptionsLoader(TAppOptionsLoader.Execute);
 
   AddOptions<THttpServerOptions>;
+  AddOptions<TApplicationOptions>;
 end;
 
 destructor TAppContainer.Destroy;
@@ -692,6 +696,7 @@ begin
       Result := TAppOptionsLoader.LoadFromFile(AFilePath);
     end
   );
+  FOptions.LoadRoot;
 end;
 
 procedure TAppContainer.SetOptionsLoader(const ALoader: TOptionsValueLoader);

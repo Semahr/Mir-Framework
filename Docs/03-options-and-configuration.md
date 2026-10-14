@@ -140,6 +140,12 @@ The root JSON contains one object per registered section:
 }
 ```
 
+`HttpServer.Port` must be explicitly configured with an integer from `1` to
+`65535`. The value `8080` above is only an example, not a fallback. Server
+composition rejects a missing, zero, negative, or out-of-range port; a missing
+`HttpServer` section is rejected by the options registry. The former
+`THttpComposition.DefaultHttpPort` constant has been removed.
+
 ## Loader
 
 The default loader is configured by `TAppContainer`.
@@ -156,14 +162,19 @@ The default loader is:
 TAppOptionsLoader.Execute
 ```
 
-It loads a JSON object from the default configuration file, optionally merging an override file from `APP_OPTIONS_FILE_PATH`.
+Without explicit configuration, `Execute` uses `LoadWithOverrides` to load
+`Config/Config.json` and recursively merge an override file selected by
+`APP_OPTIONS_FILE_PATH`, if present. This default/environment-based load is deferred
+until `TOptionsRegistry.EnsureLoaded`.
 
-The container calls the loader through `TOptionsRegistry.EnsureLoaded` and caches
-its result until a new loader is configured.
+The constructor configures the default loader without reading files.
+`SetOptionsLoader` only configures the loader delegate; it does not execute it.
+The loaded configuration is cached. Once materialization has begun, replacing
+the loader or configuration is rejected with an error; there is no hot reload.
 
 ### Selecting a configuration file explicitly
 
-Use `LoadOptions` during bootstrap to select an override file in code:
+Use `LoadOptions` during bootstrap to load exactly one configuration file:
 
 ```pascal
 App := TAppContainer.Create;
@@ -176,19 +187,32 @@ finally
 end;
 ```
 
-This delegates to `TAppOptionsLoader.LoadFromFile`: it reads
-`./Config/Config.json` and recursively merges the specified file over it. Values
-in the specified file win; nested JSON objects are merged. The default file is
-still required. An empty or whitespace-only path is rejected.
+This delegates to `TAppOptionsLoader.LoadFromFile`: it immediately reads only
+the specified file and validates that it contains a JSON object. It neither
+reads nor merges `Config/Config.json`, and does not consult
+`APP_OPTIONS_FILE_PATH`. The default file is not required for this explicit
+load. An empty or whitespace-only path is rejected.
 
-The explicit load does not consult `APP_OPTIONS_FILE_PATH`. However, the
-constructor still performs its original default/environment-based load before
-`LoadOptions` can be called, so that initial configuration must also be valid.
+Reading and validating the root JSON does not materialize typed sections.
+Registered sections, including `THttpServerOptions`, are materialized later by
+`EnsureLoaded`, triggered by the first `GetGlobalOptions`, `GetOptions`, service
+resolution, or server startup. Construction and `AddOptions` before first use
+do not read any files, so no valid default/environment configuration is needed
+before calling `LoadOptions`.
 
-Loading is immediate and rematerializes registered option sections, including
-`THttpServerOptions`. Call this before resolving services or starting the server:
-previously obtained option objects/interfaces can become invalid when replaced.
-This is a startup configuration API, not a hot-reload mechanism.
+Call `LoadOptions` or `SetOptionsLoader` before materialization begins. Once it
+has begun, replacing the configuration or loader is rejected with an error,
+rather than replacing previously obtained options. This is a startup
+configuration API, not a hot-reload mechanism.
+
+### Breaking change: file loader behavior
+
+`TAppOptionsLoader.LoadFromFile(path)` now loads exactly one file. Existing
+callers that relied on its former default-plus-override merge must switch to
+`TAppOptionsLoader.LoadWithOverrides(path)`. That method preserves the recursive
+merge of `Config/Config.json` with the supplied override: override values win
+and nested JSON objects are merged. `Execute` uses `LoadWithOverrides` for the
+environment-based loading path. See [Configuration Files](13-configuration-files.md).
 
 ## Registering sections
 
@@ -250,20 +274,31 @@ App.AddOptions<TLoggerOptions>;
 
 ## Loading and registration behavior
 
-The constructor configures the default loader, which loads options immediately.
-Setting another loader (including through `LoadOptions`) triggers another load.
+- Construction configures the default loader and registers HTTP server options
+  without reading files.
+- `AddOptions<T>` before first use registers a section without reading files or
+  materializing it.
+- `SetOptionsLoader` configures a delegate without executing it.
+- `LoadOptions(path)` immediately reads and validates only that file, but defers
+  section materialization.
+- `EnsureLoaded`, whether called directly or by the first `GetGlobalOptions`,
+  `GetOptions`, service resolution, or server startup, materializes the options.
+  Without an explicit load, it executes the configured loader at this point.
+- Once materialization begins, loader/configuration replacement fails with an
+  error. Subsequent access uses the cached configuration, not a hot reload.
 
 The flow is:
 
 ```mermaid
 flowchart TD
-    A[SetOptionsLoader during construction or explicit configuration] --> B[EnsureLoaded]
-    B --> C[Run root JSON loader once]
-    C --> D[Register IOptions<TJSONObject>]
-    D --> E[Run registered section materializers]
-    E --> F[Extract each TOptionsSection from JSON]
-    F --> G[Create TOptions<TSection>]
-    G --> H[Register IOptions<TSection> in container]
+    A[Bootstrap without materialization] --> B[Configure loader delegate without executing it]
+    A --> C[LoadOptions reads and validates only the specified file]
+    B --> D[First options access, resolution, or server startup]
+    C --> D
+    D --> E[EnsureLoaded begins materialization and blocks replacement]
+    E --> F[Use explicitly loaded JSON or execute configured loader once]
+    F --> G[Register root options and materialize registered sections]
+    G --> H[Cache options for subsequent access]
 ```
 
 ## Important implementation detail

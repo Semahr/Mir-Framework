@@ -281,7 +281,10 @@ type
     /// Singleton and transient dependencies can be resolved from the root container. Scoped
     /// dependencies must be resolved from a scope created with CreateScope.
     /// </remarks>
-    function Resolve(const ATypeInfo: PTypeInfo): TObject;
+    function Resolve(const ATypeInfo: PTypeInfo): TObject; overload;
+
+    /// <summary>Resolves a class or interface using its exact requested contract.</summary>
+    function Resolve<T>: T; overload;
 
     /// <summary>
     /// Creates a scope for resolving dependencies that live for a single request/operation.
@@ -982,6 +985,50 @@ begin
     dlScoped:
       AddDescriptor(TScopedDependencyDescriptor.Create(ATypeInfo, nil, AFactory));
   end;
+end;
+
+function TAppContainer.Resolve<T>: T;
+var
+  DependencyType: PTypeInfo;
+  Descriptor: TDependencyDescriptor;
+  Instance: TObject;
+  Contract: IInterface;
+  Value: TValue;
+begin
+  DependencyType := TypeInfo(T);
+  if (DependencyType = nil) or
+     not (DependencyType.Kind in [tkClass, tkInterface]) then
+    raise EInvalidDependencyException.Create(
+      'Generic resolution requires a class or interface contract.');
+
+  Descriptor := GetDescriptor(DependencyType);
+  if (DependencyType.Kind = tkInterface) and
+     (Descriptor.DependencyType = DependencyType) and
+     (Descriptor is TSingletonDependencyDescriptor) and
+     TSingletonDependencyDescriptor(Descriptor).HasInstanceValue then
+    Exit(TSingletonDependencyDescriptor(Descriptor).InstanceValue.AsType<T>);
+
+  Instance := Resolve(DependencyType);
+  if DependencyType.Kind = tkInterface then
+  begin
+    if (Instance = nil) or not Supports(
+      Instance, GetTypeData(DependencyType).Guid, Contract
+    ) then
+      raise EMissingDependencyException.CreateFmt(
+        'Resolved dependency does not implement "%s".', [DependencyType.Name]);
+
+    TValue.Make(@Contract, DependencyType, Value);
+  end
+  else
+  begin
+    if (Instance = nil) or
+       not Instance.InheritsFrom(GetTypeData(DependencyType).ClassType) then
+      raise EMissingDependencyException.CreateFmt(
+        'Resolved dependency is not an instance of "%s".', [DependencyType.Name]);
+
+    TValue.Make(@Instance, DependencyType, Value);
+  end;
+  Result := Value.AsType<T>;
 end;
 
 function TAppContainer.Resolve(const ATypeInfo: PTypeInfo): TObject;

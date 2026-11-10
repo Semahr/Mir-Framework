@@ -148,6 +148,9 @@ var
   Scope: TContainerScope;
   Service: TObject;
   Consumer: TConsumer;
+  Primary: IPrimary;
+  Alias: IAlias;
+  SupportedAlias: IAlias;
   Calls: Integer;
 begin
   TService.Destroyed := 0;
@@ -171,7 +174,14 @@ begin
     Root.Prepare;
     Scope := Root.CreateScope;
     try
+      Root.Resolve<IPrimary>; // Ignored result is valid for singleton warmup.
+      Primary := Root.Resolve<IPrimary>;
+      Alias := Root.Resolve<IAlias>;
       Service := Root.Resolve(TypeInfo(IAlias));
+      Check(Primary.PrimaryValue = 17, 'Generic primary contract');
+      Check(Alias.AliasValue = 29, 'Generic alias must use its exact GUID');
+      Check(Supports(Service, IAlias, SupportedAlias), 'Underlying object supports alias');
+      Check(Alias = SupportedAlias, 'Generic alias must expose the underlying object interface');
       Check(Service = Root.Resolve(TypeInfo(IPrimary)), 'Singleton alias identity');
       Check(Service = Root.Resolve(TypeInfo(ISecondAlias)), 'Multiple singleton aliases identity');
       Check(Service = Scope.Resolve(TypeInfo(ISecondAlias)), 'Scope second alias singleton identity');
@@ -184,6 +194,9 @@ begin
       Check(Consumer.Alias.AliasValue = 29, 'Repeated alias injection');
       Check(Calls = 1, 'Alias must not construct another singleton');
     finally
+      SupportedAlias := nil;
+      Alias := nil;
+      Primary := nil;
       Scope.Free;
     end;
     Check(TService.Destroyed = 0, 'Scope must not own singleton alias');
@@ -199,6 +212,7 @@ var
   Scope: TContainerScope;
   Service: TService;
   Primary: IPrimary;
+  Alias: IAlias;
   Descriptor: TSingletonDependencyDescriptor;
   Consumer: TConsumer;
 begin
@@ -217,6 +231,14 @@ begin
     Descriptor.HasInstanceValue := True;
     Primary := nil;
     Root.Prepare;
+    Primary := Root.Resolve<IPrimary>;
+    Alias := Root.Resolve<IAlias>;
+    Check(Primary.PrimaryValue = 17, 'Generic matching InstanceValue contract');
+    Check(Alias.AliasValue = 29, 'Generic alias must not reuse principal InstanceValue');
+    Check(Descriptor.InstanceValue.TypeInfo = TypeInfo(IPrimary),
+      'Generic alias must preserve principal InstanceValue type');
+    ExpectFailure(procedure begin Root.Resolve<IOther>; end,
+      'Generic incompatible alias must not use InstanceValue shortcut');
     Scope := Root.CreateScope;
     try
       Consumer := TConsumer(Scope.Resolve(TypeInfo(TConsumer)));
@@ -227,6 +249,38 @@ begin
     finally
       Scope.Free;
     end;
+  finally
+    Alias := nil;
+    Primary := nil;
+    Root.Free;
+  end;
+end;
+
+procedure TestGenericClassAndInvalidTypes;
+var
+  Root: TAppContainer;
+  Service: TService;
+begin
+  Root := NewContainer;
+  try
+    Root.AddSingleton<TService, TService>;
+    // Factory implementations are not constrained to return the advertised class.
+    Root.AddSingletonFactory<TConsumer, TService>(
+      function(const Resolve: TDependencyResolver): TObject
+      begin
+        Result := TService.Create;
+      end);
+    Root.Prepare;
+    Service := Root.Resolve<TService>;
+    Check(Service <> nil, 'Registered class must resolve');
+    Check(Service = Root.Resolve(TypeInfo(TService)), 'Generic class identity');
+    Check(Service.PrimaryValue = 17, 'Generic class methods');
+    ExpectFailure(procedure begin Root.Resolve<TConsumer>; end,
+      'Generic class must validate actual instance type');
+    ExpectFailure(procedure begin Root.Resolve<Integer>; end,
+      'Generic resolution must reject unsupported types');
+    ExpectFailure(procedure begin Root.Resolve<IMissing>; end,
+      'Generic resolution must reject missing interface');
   finally
     Root.Free;
   end;
@@ -261,6 +315,10 @@ begin
         Check(B = Second.Resolve(TypeInfo(IAlias)), 'Principal-first scoped cache');
         Check(A <> B, 'Different scopes must have different instances');
         Check(Calls = 2, 'Only one construction per scope');
+        ExpectFailure(procedure begin Root.Resolve<IPrimary>; end,
+          'Generic root must reject scoped principal resolution');
+        ExpectFailure(procedure begin Root.Resolve<IAlias>; end,
+          'Generic root must reject scoped alias resolution');
         ExpectFailure(procedure begin Root.Resolve(TypeInfo(IAlias)); end,
           'Root must reject scoped alias resolution');
       finally
@@ -369,7 +427,9 @@ begin
     Root.AddTransient<TIncompatibleConsumer, TIncompatibleConsumer>;
     Root.Prepare;
     Check(Root.Resolve(TypeInfo(IOther)) = Root.Resolve(TypeInfo(IPrimary)),
-      'Resolve returns TObject, not a checked interface');
+      'Low-level Resolve returns TObject, not a checked interface');
+    ExpectFailure(procedure begin Root.Resolve<IOther>; end,
+      'Generic Resolve must reject incompatible alias GUID');
     Scope := Root.CreateScope;
     try
       ExpectFailure(procedure begin Scope.Resolve(TypeInfo(TIncompatibleConsumer)); end,
@@ -444,6 +504,7 @@ begin
   try
     TestSingletonAndInjection;
     TestTypedSingletonValue;
+    TestGenericClassAndInvalidTypes;
     TestScoped;
     TestTransient;
     TestInvalidAndFreeze;

@@ -112,6 +112,40 @@ The original API remains available for compatibility and low-level registration:
 Container.AddFactory(TypeInfo(IMyService), Factory, dlScoped);
 ```
 
+## Typed root resolution
+
+`TAppContainer` provides `Resolve<T>: T` alongside the existing
+`Resolve(PTypeInfo): TObject` overload:
+
+```pascal
+App.AddSingleton<ILogger, TLogger>;
+App.Prepare;
+App.Resolve<ILogger>; // Ignore the result to warm up the singleton.
+Logger := App.Resolve<ILogger>;
+try
+  // Use Logger while App is alive.
+finally
+  Logger := nil; // Release the interface before App.Free.
+end;
+```
+
+The generic overload accepts registered interfaces and classes. Interfaces are
+queried with `Supports` using the exact requested interface GUID; classes require
+an instance compatible with the requested class. Missing registrations, incompatible
+implementations and unsupported types such as `Resolve<Integer>` are rejected.
+The low-level overload still returns the underlying `TObject` without performing
+this typed interface conversion.
+
+Typed resolution does not change lifetime ownership or make container-owned
+interfaces reference-counted. Use non-reference-counted implementations, such as
+`TComponent` with a `nil` owner, and clear interface variables and interface-valued
+properties before freeing their owning root/scope. Interface references do not
+keep those services alive.
+
+Root resolution rejects scoped services, including aliases, with either overload.
+Use a request scope for scoped dependencies. There is no `Scope.Resolve<T>` API
+at present; scopes retain `Resolve(PTypeInfo): TObject`.
+
 ## Interface aliases
 
 An alias exposes an existing principal interface registration through another interface
@@ -154,13 +188,17 @@ Aliases preserve the principal lifetime and ownership:
   Transients resolved through a scope are tracked and freed by that scope.
 
 An alias never owns or separately frees an instance. Resolution through an alias also
-participates in the usual cycle and captive-scope checks. `Resolve` returns `TObject`,
-not a typed interface, and does not by itself guarantee that the object implements the
-alias contract. Constructor injection checks `Supports` for the requested interface
-GUID and creates a `TValue` with that exact parameter type; an incompatible object is
-rejected before invoking the constructor. A cached singleton interface `InstanceValue`
-is only reusable when its contract matches the requested parameter, not merely because
-an alias shares its descriptor.
+participates in the usual cycle and captive-scope checks. `Resolve(PTypeInfo)` returns
+`TObject` and does not by itself guarantee that the object implements the alias
+contract. `App.Resolve<ISecondaryService>` verifies the alias's exact GUID with
+`Supports`; sharing a descriptor does not bypass that check. Constructor injection
+likewise checks the requested GUID and creates a `TValue` with that exact parameter
+type; an incompatible object is rejected before invoking the constructor.
+
+The cached singleton interface `InstanceValue` (used by options) is preserved for
+the principal contract. It is only reusable for that matching contract, not merely
+because an alias shares its descriptor. Resolving an alias must query its own
+interface rather than reinterpret or replace the principal's cached typed value.
 
 Use container-owned, non-reference-counted implementations such as `TComponent` with
 `nil` as component owner; do not combine component ownership with container ownership.
@@ -319,6 +357,9 @@ Container.AddAttributeHandlers([TOneHandler, TAnotherHandler]);
 
 Container.AddOptions<TOptions>;
 Container.Prepare; // Finish single-threaded bootstrap before publication.
+Container.Resolve<ILogger>; // Optional singleton warmup; result may be ignored.
+Logger := Container.Resolve<ILogger>;
+ServiceObject := Container.Resolve(TypeInfo(ILogger)); // Existing TObject overload.
 ```
 
 ## Common errors

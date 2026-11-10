@@ -130,6 +130,9 @@ The root JSON contains one object per registered section:
 
 ```json
 {
+  "Application": {
+    "Environment": "production"
+  },
   "HttpServer": {
     "Port": 8080
   },
@@ -139,6 +142,15 @@ The root JSON contains one object per registered section:
   }
 }
 ```
+
+`TAppOptions` remains the root JSON alias in `App.Options`.
+`TApplicationOptions` is the typed `Application` section in `Application.Options`
+(`Source/Core/Application.Options.pas`), separate from `THttpServerOptions`.
+`Application.Environment` controls default HTTP 500 error details: only
+`SameText(Environment.Trim, 'development')` enables original exception messages.
+All other values, including an omitted/empty `Environment`, use sanitized 500
+messages. The `Application` object itself is required because the container
+registers both built-in sections. See [HTTP Responses](10-http-responses.md).
 
 `HttpServer.Port` must be explicitly configured with an integer from `1` to
 `65535`. The value `8080` above is only an example, not a fallback. Server
@@ -194,7 +206,7 @@ reads nor merges `Config/Config.json`, and does not consult
 load. An empty or whitespace-only path is rejected.
 
 Reading and validating the root JSON does not materialize typed sections.
-Registered sections, including `THttpServerOptions`, are materialized later by
+Registered sections, including `TApplicationOptions` and `THttpServerOptions`, are materialized later by
 `EnsureLoaded`, triggered by the first `GetGlobalOptions`, `GetOptions`, service
 resolution, or server startup. Construction and `AddOptions` before first use
 do not read any files, so no valid default/environment configuration is needed
@@ -260,10 +272,11 @@ and expects the root JSON to contain:
 
 ## Default options
 
-`TAppContainer` registers HTTP server options by default:
+`TAppContainer` registers application and HTTP server options by default:
 
 ```pascal
 AddOptions<THttpServerOptions>;
+AddOptions<TApplicationOptions>;
 ```
 
 Applications can register their own sections during bootstrap:
@@ -274,8 +287,8 @@ App.AddOptions<TLoggerOptions>;
 
 ## Loading and registration behavior
 
-- Construction configures the default loader and registers HTTP server options
-  without reading files.
+- Construction configures the default loader and registers application and HTTP
+  server options without reading files.
 - `AddOptions<T>` before first use registers a section without reading files or
   materializing it.
 - `SetOptionsLoader` configures a delegate without executing it.

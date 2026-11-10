@@ -26,11 +26,15 @@ type
   TAppContainer = class
   private
     FDescriptors: TObjectDictionary<PTypeInfo, TDependencyDescriptor>;
+    FAliases: TDictionary<PTypeInfo, PTypeInfo>;
     FControllerTypes: TList<TClass>;
     FGlobalMiddlewares: TList<TMiddlewareDescriptor>;
     FAttributeHandlerTypes: TList<TClass>;
     FOptions: TOptionsRegistry;
-    FResolutionStack: TList<PTypeInfo>;
+    FSingletonLock: TObject;
+    FPrepared: Boolean;
+
+    procedure CheckMutable;
 
     /// <summary>
     /// Converts class RTTI into a TClass value used by generic registration methods.
@@ -71,14 +75,14 @@ type
     procedure AddSingletonInstanceValue(const ATypeInfo: PTypeInfo; const AInstance: TObject; const AInstanceValue: TValue; const AOwnsInstance: Boolean);
 
     /// <summary>
-    /// Adds a dependency type to the active resolution stack and raises when a circular dependency is detected.
+    /// Pushes a thread-local construction frame and detects circular dependencies for this root.
     /// </summary>
-    procedure EnterResolution(const ATypeInfo: PTypeInfo);
+    procedure EnterResolution(const ATypeInfo: PTypeInfo; const ALifetime: TDependencyLifetime);
 
     /// <summary>
-    /// Removes a dependency type from the active resolution stack after construction completes.
+    /// Pops the current thread's construction frame in the construction finally block.
     /// </summary>
-    procedure LeaveResolution(const ATypeInfo: PTypeInfo);
+    procedure LeaveResolution;
 
     /// <summary>
     /// Checks whether a class implements the interface contract required by framework components.
@@ -89,6 +93,20 @@ type
     /// Creates an empty root container ready to receive dependency and controller registrations.
     /// </summary>
     constructor Create;
+
+    /// <summary>Materializes options and freezes registration after successful bootstrap.</summary>
+    /// <remarks>Call on the bootstrap thread before sharing the container. Scopes remain thread-confined.</remarks>
+    procedure Prepare;
+
+    /// <summary>
+    /// Registers an interface alias for an existing direct interface registration.
+    /// The alias inherits the target lifetime and owns no descriptor or instance.
+    /// </summary>
+    procedure AddAlias(const AAliasType: PTypeInfo; const ATargetType: PTypeInfo); overload;
+    procedure AddAlias<TAlias; TTarget>; overload;
+
+    /// <summary>Rejects scoped dependencies captured by an active singleton on this root.</summary>
+    procedure CheckScopedResolution(const ATypeInfo: PTypeInfo);
 
     /// <summary>
     /// Releases descriptors, singleton instances owned by descriptors, and controller metadata.
@@ -241,6 +259,12 @@ type
     /// </summary>
     procedure AddAttributeHandlers(const AHandlerTypes: array of TClass);
 
+    procedure AddSingletonFactory<TDependency; TImplementation: class>(const AFactory: TDependencyFactory);
+
+    procedure AddScopedFactory<TDependency; TImplementation: class>(const AFactory: TDependencyFactory);
+
+    procedure AddTransientFactory<TDependency; TImplementation: class>(const AFactory: TDependencyFactory);
+
     /// <summary>
     /// Registers a dependency with custom construction logic and an explicit lifetime.
     /// </summary>
@@ -275,7 +299,18 @@ uses
   Http.Middleware.Port,
   Http.EndpointAttributeHandler.Port,
   Http.Server.Options,
-  App.Options;
+  Application.Options;
+
+type
+  TResolutionFrame = class
+    Root: TAppContainer;
+    DependencyType: PTypeInfo;
+    Lifetime: TDependencyLifetime;
+    Previous: TResolutionFrame;
+  end;
+
+threadvar
+  ActiveResolution: TResolutionFrame;
 
 { TAppContainer }
 
@@ -283,11 +318,12 @@ constructor TAppContainer.Create;
 begin
   inherited Create;
   FDescriptors := TObjectDictionary<PTypeInfo, TDependencyDescriptor>.Create([doOwnsValues]);
+  FAliases := TDictionary<PTypeInfo, PTypeInfo>.Create;
   FControllerTypes := TList<TClass>.Create;
   FGlobalMiddlewares := TList<TMiddlewareDescriptor>.Create;
   FAttributeHandlerTypes := TList<TClass>.Create;
   FOptions := TOptionsRegistry.Create;
-  FResolutionStack := TList<PTypeInfo>.Create;
+  FSingletonLock := TObject.Create;
 
   SetOptionsLoader(TAppOptionsLoader.Execute);
 
@@ -297,12 +333,14 @@ end;
 
 destructor TAppContainer.Destroy;
 begin
-  FResolutionStack.Free;
+
   FOptions.Free;
   FAttributeHandlerTypes.Free;
   FGlobalMiddlewares.Free;
   FControllerTypes.Free;
   FDescriptors.Free;
+  FAliases.Free;
+  FSingletonLock.Free;
   inherited;
 end;
 
@@ -318,10 +356,53 @@ end;
 
 procedure TAppContainer.AddDescriptor(const ADescriptor: TDependencyDescriptor);
 begin
-  if ADescriptor.DependencyType = nil then
-    raise EMissingDependencyException.Create('Dependency type is required.');
+  try
+    CheckMutable;
+    if ADescriptor = nil then
+      raise EMissingDependencyException.Create('Dependency descriptor is required.');
+    if ADescriptor.DependencyType = nil then
+      raise EMissingDependencyException.Create('Dependency type is required.');
+
+    if FAliases.ContainsKey(ADescriptor.DependencyType) then
+      raise EInvalidDependencyException.CreateFmt(
+        'Type "%s" is already registered as an alias.',
+        [ADescriptor.DependencyType.Name]
+      );
+  except
+    ADescriptor.Free;
+    raise;
+  end;
 
   FDescriptors.AddOrSetValue(ADescriptor.DependencyType, ADescriptor);
+end;
+
+procedure TAppContainer.AddAlias(const AAliasType: PTypeInfo; const ATargetType: PTypeInfo);
+begin
+  CheckMutable;
+
+  if (AAliasType = nil) or (ATargetType = nil) then
+    raise EInvalidDependencyException.Create('Alias and target types are required.');
+
+  if (AAliasType.Kind <> tkInterface) or (ATargetType.Kind <> tkInterface) then
+    raise EInvalidDependencyException.Create('Aliases require interface contracts.');
+
+  if AAliasType = ATargetType then
+    raise EInvalidDependencyException.Create('An alias cannot target itself.');
+
+  if FDescriptors.ContainsKey(AAliasType) or FAliases.ContainsKey(AAliasType) then
+    raise EInvalidDependencyException.CreateFmt(
+      'Type "%s" is already registered.', [AAliasType.Name]);
+
+  if not FDescriptors.ContainsKey(ATargetType) then
+    raise EInvalidDependencyException.CreateFmt(
+      'Alias target "%s" must have a direct registration first.', [ATargetType.Name]);
+
+  FAliases.Add(AAliasType, ATargetType);
+end;
+
+procedure TAppContainer.AddAlias<TAlias, TTarget>;
+begin
+  AddAlias(TypeInfo(TAlias), TypeInfo(TTarget));
 end;
 
 function TAppContainer.FindConstructor(const AImplementationType: TClass): TRttiMethod;
@@ -429,7 +510,8 @@ begin
     tkInterface:
       begin
         var Descriptor := GetDescriptor(ParameterType.Handle);
-        if (Descriptor is TSingletonDependencyDescriptor) and
+        if (Descriptor.DependencyType = ParameterType.Handle) and
+           (Descriptor is TSingletonDependencyDescriptor) and
            TSingletonDependencyDescriptor(Descriptor).HasInstanceValue then
           Exit(TSingletonDependencyDescriptor(Descriptor).InstanceValue);
 
@@ -469,6 +551,7 @@ procedure TAppContainer.AddSingletonInstanceValue(
 var
   Descriptor: TDependencyDescriptor;
 begin
+  CheckMutable;
   if ATypeInfo = nil then
     raise EMissingDependencyException.Create('Dependency type is required.');
 
@@ -484,49 +567,83 @@ begin
   AddDescriptor(Descriptor);
 end;
 
-procedure TAppContainer.EnterResolution(const ATypeInfo: PTypeInfo);
+procedure TAppContainer.EnterResolution(const ATypeInfo: PTypeInfo; const ALifetime: TDependencyLifetime);
 var
+  Frame: TResolutionFrame;
   ResolutionPath: string;
+  HasCycle: Boolean;
 begin
   if ATypeInfo = nil then
     raise EMissingDependencyException.Create('Dependency type is required.');
 
-  if FResolutionStack.IndexOf(ATypeInfo) >= 0 then
+  if ALifetime = dlScoped then
+    CheckScopedResolution(ATypeInfo);
+
+  Frame := ActiveResolution;
+  ResolutionPath := ATypeInfo.Name;
+  HasCycle := False;
+  while Frame <> nil do
   begin
-    ResolutionPath := '';
-
-    for var ResolvingType in FResolutionStack do
+    if Frame.Root = Self then
     begin
-      if not ResolutionPath.IsEmpty then
-        ResolutionPath := ResolutionPath + ' -> ';
-
-      ResolutionPath := ResolutionPath + ResolvingType.Name;
+      ResolutionPath := string(Frame.DependencyType.Name) + ' -> ' + ResolutionPath;
+      HasCycle := HasCycle or (Frame.DependencyType = ATypeInfo);
     end;
-
-    if not ResolutionPath.IsEmpty then
-      ResolutionPath := ResolutionPath + ' -> ';
-
-    ResolutionPath := ResolutionPath + ATypeInfo.Name;
-
-    raise EMissingDependencyException.CreateFmt(
-      'Circular dependency detected: %s.',
-      [ResolutionPath]
-    );
+    Frame := Frame.Previous;
   end;
+  if HasCycle then
+    raise EMissingDependencyException.CreateFmt(
+      'Circular dependency detected: %s.', [ResolutionPath]);
 
-  FResolutionStack.Add(ATypeInfo);
+  Frame := TResolutionFrame.Create;
+  Frame.Root := Self;
+  Frame.DependencyType := ATypeInfo;
+  Frame.Lifetime := ALifetime;
+  Frame.Previous := ActiveResolution;
+  ActiveResolution := Frame;
 end;
 
-procedure TAppContainer.LeaveResolution(const ATypeInfo: PTypeInfo);
+procedure TAppContainer.LeaveResolution;
 var
-  LastIndex: Integer;
+  Frame: TResolutionFrame;
 begin
-  LastIndex := FResolutionStack.Count - 1;
+  Frame := ActiveResolution;
+  ActiveResolution := Frame.Previous;
+  Frame.Free;
+end;
 
-  if (LastIndex >= 0) and (FResolutionStack[LastIndex] = ATypeInfo) then
-    FResolutionStack.Delete(LastIndex)
-  else
-    FResolutionStack.Remove(ATypeInfo);
+procedure TAppContainer.CheckScopedResolution(const ATypeInfo: PTypeInfo);
+var
+  Frame: TResolutionFrame;
+begin
+  Frame := ActiveResolution;
+  while Frame <> nil do
+  begin
+    if (Frame.Root = Self) and (Frame.Lifetime = dlSingleton) then
+      raise EMissingDependencyException.CreateFmt(
+        'Scoped dependency "%s" cannot be captured by singleton "%s".',
+        [ATypeInfo.Name, Frame.DependencyType.Name]);
+    Frame := Frame.Previous;
+  end;
+end;
+
+procedure TAppContainer.CheckMutable;
+begin
+  if FPrepared then
+    raise EInvalidDependencyException.Create('Container registrations cannot change after Prepare.');
+end;
+
+procedure TAppContainer.Prepare;
+begin
+  TMonitor.Enter(FSingletonLock);
+  try
+    if FPrepared then
+      Exit;
+    FOptions.EnsureLoaded;
+    FPrepared := True;
+  finally
+    TMonitor.Exit(FSingletonLock);
+  end;
 end;
 
 function TAppContainer.ImplementsInterfaceContract(const AType: TClass; const AInterfaceType: PTypeInfo): Boolean;
@@ -577,15 +694,21 @@ begin
   if ADescriptor = nil then
     raise EMissingDependencyException.Create('Dependency descriptor is required.');
 
-  EnterResolution(ADescriptor.DependencyType);
+  EnterResolution(ADescriptor.DependencyType, ADescriptor.GetLifetime);
   try
     if Assigned(ADescriptor.Factory) then
-      Exit(ADescriptor.Factory(
+    begin
+      Result := ADescriptor.Factory(
         function(const ATypeInfo: PTypeInfo): TObject
         begin
           Result := ResolveDependency(ATypeInfo, AResolver);
         end
-      ));
+      );
+      if Result = nil then
+        raise EMissingDependencyException.CreateFmt(
+          'Factory for dependency "%s" returned nil.', [ADescriptor.DependencyType.Name]);
+      Exit;
+    end;
 
     if ADescriptor.ImplementationType = nil then
       raise EMissingDependencyException.CreateFmt(
@@ -595,7 +718,7 @@ begin
 
     Result := CreateComponentInstance(ADescriptor.ImplementationType, AResolver);
   finally
-    LeaveResolution(ADescriptor.DependencyType);
+    LeaveResolution;
   end;
 end;
 
@@ -623,13 +746,25 @@ begin
 end;
 
 function TAppContainer.GetDescriptor(const ATypeInfo: PTypeInfo): TDependencyDescriptor;
+var
+  LookupType: PTypeInfo;
+  TargetType: PTypeInfo;
 begin
-  FOptions.EnsureLoaded;
+  TMonitor.Enter(FSingletonLock);
+  try
+    FOptions.EnsureLoaded;
+  finally
+    TMonitor.Exit(FSingletonLock);
+  end;
 
   if ATypeInfo = nil then
     raise EMissingDependencyException.Create('Dependency type is required.');
 
-  if not FDescriptors.TryGetValue(ATypeInfo, Result) then
+  LookupType := ATypeInfo;
+  if FAliases.TryGetValue(ATypeInfo, TargetType) then
+    LookupType := TargetType;
+
+  if not FDescriptors.TryGetValue(LookupType, Result) then
     raise EMissingDependencyException.CreateFmt(
       'Type "%s" was not registered in container.',
       [ATypeInfo.Name]
@@ -643,6 +778,7 @@ end;
 
 procedure TAppContainer.AddSingleton(const ATypeInfo: PTypeInfo; const AImplementationType: TClass);
 begin
+  CheckMutable;
   if AImplementationType = nil then
     raise EMissingDependencyException.Create('Implementation type is required.');
 
@@ -656,11 +792,13 @@ end;
 
 procedure TAppContainer.AddSingleton<TDependency, TImplementation>;
 begin
+  CheckMutable;
   AddSingleton(TypeInfo(TDependency), GetClassType(TypeInfo(TImplementation)));
 end;
 
 procedure TAppContainer.AddTransient(const ATypeInfo: PTypeInfo; const AImplementationType: TClass);
 begin
+  CheckMutable;
   if AImplementationType = nil then
     raise EMissingDependencyException.Create('Implementation type is required.');
 
@@ -669,11 +807,13 @@ end;
 
 procedure TAppContainer.AddTransient<TDependency, TImplementation>;
 begin
+  CheckMutable;
   AddTransient(TypeInfo(TDependency), GetClassType(TypeInfo(TImplementation)));
 end;
 
 procedure TAppContainer.AddScoped(const ATypeInfo: PTypeInfo; const AImplementationType: TClass);
 begin
+  CheckMutable;
   if AImplementationType = nil then
     raise EMissingDependencyException.Create('Implementation type is required.');
 
@@ -682,11 +822,13 @@ end;
 
 procedure TAppContainer.AddScoped<TDependency, TImplementation>;
 begin
+  CheckMutable;
   AddScoped(TypeInfo(TDependency), GetClassType(TypeInfo(TImplementation)));
 end;
 
 procedure TAppContainer.LoadOptions(const AFilePath: string);
 begin
+  CheckMutable;
   if AFilePath.Trim.IsEmpty then
     raise EInvalidDependencyException.Create('Options file path is required.');
 
@@ -701,6 +843,7 @@ end;
 
 procedure TAppContainer.SetOptionsLoader(const ALoader: TOptionsValueLoader);
 begin
+  CheckMutable;
   FOptions.SetRootLoader(
     ALoader,
     procedure(const ATypeInfo: PTypeInfo; const AInstance: TObject; const AInstanceValue: TValue)
@@ -712,21 +855,33 @@ end;
 
 procedure TAppContainer.AddOptions<TOptions>;
 begin
+  CheckMutable;
   FOptions.Add<TOptions>;
 end;
 
 function TAppContainer.GetGlobalOptions: TJSONObject;
 begin
-  Result := FOptions.GetGlobal;
+  TMonitor.Enter(FSingletonLock);
+  try
+    Result := FOptions.GetGlobal;
+  finally
+    TMonitor.Exit(FSingletonLock);
+  end;
 end;
 
 function TAppContainer.GetOptions<TOptions>: TOptions;
 begin
-  Result := FOptions.Get<TOptions>;
+  TMonitor.Enter(FSingletonLock);
+  try
+    Result := FOptions.Get<TOptions>;
+  finally
+    TMonitor.Exit(FSingletonLock);
+  end;
 end;
 
 procedure TAppContainer.AddController(const AControllerType: TClass);
 begin
+  CheckMutable;
   if AControllerType = nil then
     raise EMissingDependencyException.Create('Controller type is required.');
 
@@ -742,12 +897,14 @@ end;
 
 procedure TAppContainer.AddControllers(const AControllerTypes: array of TClass);
 begin
+  CheckMutable;
   for var ControllerType in AControllerTypes do
     AddController(ControllerType);
 end;
 
 procedure TAppContainer.Use(const AMiddlewareType: TClass);
 begin
+  CheckMutable;
   if AMiddlewareType = nil then
     raise EMissingDependencyException.Create('Middleware type is required.');
 
@@ -762,12 +919,14 @@ end;
 
 procedure TAppContainer.Use(const AMiddlewareTypes: array of TClass);
 begin
+  CheckMutable;
   for var MiddlewareType in AMiddlewareTypes do
     Use(MiddlewareType);
 end;
 
 procedure TAppContainer.AddAttributeHandler(const AHandlerType: TClass);
 begin
+  CheckMutable;
   if AHandlerType = nil then
     raise EMissingDependencyException.Create('Attribute handler type is required.');
 
@@ -783,8 +942,24 @@ end;
 
 procedure TAppContainer.AddAttributeHandlers(const AHandlerTypes: array of TClass);
 begin
+  CheckMutable;
   for var HandlerType in AHandlerTypes do
     AddAttributeHandler(HandlerType);
+end;
+
+procedure TAppContainer.AddSingletonFactory<TDependency, TImplementation>(const AFactory: TDependencyFactory);
+begin
+  AddFactory(TypeInfo(TDependency), AFactory, dlSingleton);
+end;
+
+procedure TAppContainer.AddScopedFactory<TDependency, TImplementation>(const AFactory: TDependencyFactory);
+begin
+  AddFactory(TypeInfo(TDependency), AFactory, dlScoped);
+end;
+
+procedure TAppContainer.AddTransientFactory<TDependency, TImplementation>(const AFactory: TDependencyFactory);
+begin
+  AddFactory(TypeInfo(TDependency), AFactory, dlTransient);
 end;
 
 procedure TAppContainer.AddFactory(
@@ -793,6 +968,7 @@ procedure TAppContainer.AddFactory(
   const ALifetime: TDependencyLifetime
 );
 begin
+  CheckMutable;
   if not Assigned(AFactory) then
     raise EMissingDependencyException.Create('Dependency factory is required.');
 
@@ -812,8 +988,6 @@ function TAppContainer.Resolve(const ATypeInfo: PTypeInfo): TObject;
 var
   Descriptor: TDependencyDescriptor;
 begin
-  FOptions.EnsureLoaded;
-
   Descriptor := GetDescriptor(ATypeInfo);
 
   case Descriptor.GetLifetime of
@@ -821,10 +995,15 @@ begin
       begin
         var SingletonDescriptor := TSingletonDependencyDescriptor(Descriptor);
 
-        if SingletonDescriptor.Instance = nil then
-          SingletonDescriptor.Instance := CreateInstance(Descriptor, Self);
+        TMonitor.Enter(FSingletonLock);
+        try
+          if SingletonDescriptor.Instance = nil then
+            SingletonDescriptor.Instance := CreateInstance(Descriptor, Self);
 
-        Exit(SingletonDescriptor.Instance);
+          Exit(SingletonDescriptor.Instance);
+        finally
+          TMonitor.Exit(FSingletonLock);
+        end;
       end;
 
     dlTransient:

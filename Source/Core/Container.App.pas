@@ -69,12 +69,21 @@ type
     /// <remarks>
     /// Options wrappers are owned by TOptionsRegistry, so their descriptors are registered with ownership disabled.
     /// </remarks>
-    procedure AddSingletonInstance(const ATypeInfo: PTypeInfo; const AInstance: TObject; const AOwnsInstance: Boolean);
+    procedure AddSingletonInstance(
+      const ATypeInfo: PTypeInfo;
+      const AInstance: TObject;
+      const AOwnsInstance: Boolean
+    );
 
     /// <summary>
     /// Registers an already-created singleton with an exact RTTI value for interface injection.
     /// </summary>
-    procedure AddSingletonInstanceValue(const ATypeInfo: PTypeInfo; const AInstance: TObject; const AInstanceValue: TValue; const AOwnsInstance: Boolean);
+    procedure AddSingletonInstanceValue(
+      const ATypeInfo: PTypeInfo;
+      const AInstance: TObject;
+      const AInstanceValue: TValue;
+      const AOwnsInstance: Boolean
+    );
 
     /// <summary>
     /// Pushes a thread-local construction frame and detects circular dependencies for this root.
@@ -545,9 +554,9 @@ begin
 
   try
     Descriptor.OwnsInstance := AOwnsInstance;
+    Descriptor.Instance := AInstance;
     Descriptor.InstanceValue := AInstanceValue;
     Descriptor.HasInstanceValue := not AInstanceValue.IsEmpty;
-    Descriptor.Instance := AInstance;
   except
     Descriptor.Free;
     raise;
@@ -620,6 +629,9 @@ procedure TAppContainer.CheckMutable;
 begin
   if FPrepared then
     raise EInvalidDependencyException.Create('Container registrations cannot change after Prepare.');
+
+  if FConfigurationFailed then
+    raise EInvalidDependencyException.Create('Container configuration has failed.');
 end;
 
 procedure TAppContainer.CheckPrepared;
@@ -707,10 +719,14 @@ begin
       Continue;
 
     if TSingletonDependencyDescriptor(Descriptor).Instance = AInstance then
+    begin
+      FConfigurationFailed := True;
+
       raise EInvalidDependencyException.CreateFmt(
         'Instance is already registered as dependency "%s".',
         [Descriptor.DependencyType.Name]
       );
+    end;
   end;
 end;
 

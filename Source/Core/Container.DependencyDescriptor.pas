@@ -36,10 +36,7 @@ type
     /// <param name="AImplementationType">
     /// Concrete class to instantiate.
     /// </param>
-    constructor Create(
-      const ADependencyType: PTypeInfo;
-      const AImplementationType: TClass
-    );
+    constructor Create(const ADependencyType: PTypeInfo; const AImplementationType: TClass);
 
     /// <summary>
     /// Returns the lifecycle represented by the concrete descriptor type.
@@ -79,10 +76,7 @@ type
     /// <summary>
     /// Creates a singleton descriptor without an already-created instance.
     /// </summary>
-    constructor Create(
-      const ADependencyType: PTypeInfo;
-      const AImplementationType: TClass
-    );
+    constructor Create(const ADependencyType: PTypeInfo; const AImplementationType: TClass);
     destructor Destroy; override;
 
     /// <summary>
@@ -142,20 +136,14 @@ implementation
 uses
   AppExceptions;
 
-constructor TDependencyDescriptor.Create(
-  const ADependencyType: PTypeInfo;
-  const AImplementationType: TClass
-);
+constructor TDependencyDescriptor.Create(const ADependencyType: PTypeInfo; const AImplementationType: TClass);
 begin
   inherited Create;
   FDependencyType := ADependencyType;
   FImplementationType := AImplementationType;
 end;
 
-constructor TSingletonDependencyDescriptor.Create(
-  const ADependencyType: PTypeInfo;
-  const AImplementationType: TClass
-);
+constructor TSingletonDependencyDescriptor.Create(const ADependencyType: PTypeInfo; const AImplementationType: TClass);
 begin
   inherited Create(ADependencyType, AImplementationType);
   FOwnsInstance := True;
@@ -184,9 +172,7 @@ begin
   inherited;
 end;
 
-procedure TSingletonDependencyDescriptor.SetInstance(
-  const AInstance: TObject
-);
+procedure TSingletonDependencyDescriptor.SetInstance(const AInstance: TObject);
 var
   KeepAlive: IInterface;
   Contract: IInterface;
@@ -200,23 +186,34 @@ begin
   if DependencyType = nil then
     raise EInvalidDependencyException.Create('Singleton dependency type cannot be nil.');
 
-  if FOwnsInstance and (AInstance is TInterfacedObject) then
-  begin
-    if not Supports(AInstance, IInterface, KeepAlive) then
-      raise EInvalidDependencyException.Create('Unable to retain singleton interface.');
+  case DependencyType.Kind of
+    tkInterface:
+      begin
+        if not Supports(AInstance, GetTypeData(DependencyType).Guid, Contract) then
+          raise EInvalidDependencyException.CreateFmt(
+            'Singleton "%s" does not implement the registered interface "%s".',
+            [AInstance.ClassName, DependencyType.Name]
+          );
+      end;
+
+    tkClass:
+      begin
+        if not AInstance.InheritsFrom(GetTypeData(DependencyType).ClassType) then
+          raise EInvalidDependencyException.CreateFmt(
+            'Singleton "%s" is not compatible with registered class "%s".',
+            [AInstance.ClassName, DependencyType.Name]
+          );
+      end;
+  else
+    raise EInvalidDependencyException.Create('Singleton dependencies require a class or interface contract.');
   end;
 
-  if DependencyType.Kind = tkInterface then
+  if FOwnsInstance and (AInstance is TInterfacedObject) then
   begin
-    if not Supports(
-      AInstance,
-      GetTypeData(DependencyType).Guid,
-      Contract
-    ) then
-      raise EInvalidDependencyException.CreateFmt(
-        'Singleton "%s" does not implement the registered interface "%s".',
-        [AInstance.ClassName, DependencyType.Name]
-      );
+    if Contract <> nil then
+      KeepAlive := Contract
+    else if not Supports(AInstance, IInterface, KeepAlive) then
+      raise EInvalidDependencyException.Create('Unable to retain singleton interface.');
   end;
 
   FKeepAlive := KeepAlive;

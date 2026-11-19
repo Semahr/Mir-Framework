@@ -90,28 +90,36 @@ argument, or call its static `Render` method directly. Custom implementations of
 
 ### Environment and error details
 
-Configure the environment in the HTTP server options:
+Configure the environment in `TApplicationOptions` (unit `Application.Options`),
+not in the HTTP server options. `App.Options` retains the root JSON alias
+`TAppOptions`; the typed application section is separate:
 
 ```json
 {
-  "HttpServer": {
-    "Port": 9090,
+  "Application": {
     "Environment": "development"
+  },
+  "HttpServer": {
+    "Port": 9090
   }
 }
 ```
 
-Only `development` (case-insensitive, surrounding whitespace ignored) exposes the
+Only `SameText(Environment.Trim, 'development')` enables development behavior:
+case is ignored and surrounding whitespace is trimmed (for example,
+`" Development "` matches). This exposes the
 original exception message for HTTP status **500**. `production`, `beta`, an
 omitted/empty value, and any unrecognized value use the existing generic 500
-messages. `develop` is not an alias for `development`.
+messages. `develop` is not an alias for `development`. An omitted `Environment` means
+an existing `Application` object without that property; omitting the whole
+`Application` section fails options loading because the container registers it.
 
 Explicit `EHttpException` responses with status 500 are also sanitized outside
 development, including their error title. Other status codes retain their
 original messages, including 502 and 503; do not put secrets in those messages.
 The existing exception-to-status mappings are unchanged.
 
-Composition passes the environment from options to the server. Direct calls can
+Composition passes `Application.Environment` from options to the server. Direct calls can
 specify it explicitly, without shared global state:
 
 ```pascal
@@ -120,7 +128,9 @@ Response := TDefaultErrorResponseRenderer.Render(Error, 'development');
 
 Omitting the second argument uses production behavior. Custom renderers still
 control their own output; this policy applies to the default renderer and its
-fallback, not to successful custom renderer responses.
+fallback, not to successful custom renderer responses. If a custom renderer
+raises or returns `nil`, the fallback renders the original request exception
+using the same server environment, including development behavior.
 
 ## Invalid return types
 

@@ -178,8 +178,13 @@ begin
   end;
 
   // Authenticate here. No matching metadata means the middleware uses its default.
+  Result := ANext();
 end;
 ```
+
+After successful authentication, return `Result := ANext();`, not just `ANext();`.
+`TNextDelegate` returns a `TResponse`, which must propagate back through the
+middleware chain to `THttpServer`.
 
 `AuthenticationAttribute` above is an application-defined attribute with a `Required`
 Boolean property, not a built-in security policy.

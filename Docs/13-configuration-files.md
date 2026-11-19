@@ -77,12 +77,33 @@ registration and materialization lifecycle.
 
 ```json
 {
+  "Application": {
+    "Environment": "production"
+  },
+  "HttpServer": {
+    "Port": 8080
+  },
   "Logger": {
     "LogLevel": "Info",
     "FilePath": "./Logs/App.log"
   }
 }
 ```
+
+`TAppContainer` registers `TApplicationOptions` (unit `Application.Options`) and
+`THttpServerOptions` by default, so both JSON objects are required, including
+when loading a single explicit file. `App.Options` retains only the root
+`TAppOptions = TJSONObject` alias.
+
+`Application.Environment` is separate from `HttpServer.Port`. Only
+`SameText(Environment.Trim, 'development')` enables original HTTP 500 exception
+messages; case is ignored and surrounding whitespace is trimmed. `develop` is
+not an alias. An omitted/empty `Environment` or any other value uses sanitized
+500 messages; omitting the `Application` object instead fails section loading.
+See [HTTP Responses](10-http-responses.md) for sanitization and renderer fallback.
+
+`HttpServer.Port` must be an integer from `1` to `65535`; `8080` is an example,
+not a fallback. A missing or invalid port is rejected at server composition.
 
 ## Logger section
 
@@ -106,20 +127,20 @@ Valid `LogLevel` values:
 
 ## Adding application sections
 
-If `TAppOptions` contains:
+Keep `TAppOptions` as the root `TJSONObject` alias. Define each additional
+section as a class inheriting from `TOptionsSection`; for example,
+`TJwtOptions.GetSectionName` must return `'Jwt'`.
 
-```pascal
-type
-  TAppOptions = record
-    Logger: TLoggerOptions;
-    Jwt: TJwtOptions;
-  end;
-```
-
-then JSON can contain:
+The root JSON can then contain:
 
 ```json
 {
+  "Application": {
+    "Environment": "production"
+  },
+  "HttpServer": {
+    "Port": 8080
+  },
   "Logger": {
     "LogLevel": "Info",
     "FilePath": "./Logs/App.log"
@@ -134,5 +155,5 @@ then JSON can contain:
 Then register the section:
 
 ```pascal
-Container.AddOptions<TJwtOptions>('Jwt');
+Container.AddOptions<TJwtOptions>;
 ```

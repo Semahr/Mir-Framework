@@ -9,10 +9,11 @@ uses
   AppExceptions,
   App.Options.Loader,
   Container.App,
+  Application.Options,
   Http.Server.Options;
 
 const
-  CustomJson = '{"HttpServer":{"Port":9090}}';
+  CustomJson = '{"Application":{"Environment":"production"},"HttpServer":{"Port":9090}}';
 
 procedure Check(const ACondition: Boolean; const AMessage: string);
 begin
@@ -79,6 +80,21 @@ begin
     TFile.Delete(APath);
     Root := Container.GetGlobalOptions;
     CheckPort(Root, 9090);
+    var ApplicationOptions := Container.GetOptions<TApplicationOptions>;
+    try
+      Check(ApplicationOptions.SectionName = 'Application',
+        'Application options must use their own section');
+      Check(ApplicationOptions.Environment = 'production',
+        'Environment must be loaded from Application');
+    finally
+      ApplicationOptions.Free;
+    end;
+    var HttpOptions := Container.GetOptions<THttpServerOptions>;
+    try
+      Check(HttpOptions.Port = 9090, 'HTTP options must retain their own port');
+    finally
+      HttpOptions.Free;
+    end;
     TFile.WriteAllText(APath, CustomJson, TEncoding.UTF8);
     ExpectInvalidDependency(
       procedure
@@ -145,6 +161,8 @@ begin
       begin
         Inc(LoaderCalls);
         Result := TJSONObject.Create;
+        Result.AddPair('Application',
+          TJSONObject.Create.AddPair('Environment', 'production'));
         Result.AddPair('HttpServer',
           TJSONObject.Create.AddPair('Port', TJSONNumber.Create(9090)));
       end);
@@ -177,12 +195,12 @@ begin
   // Only this final test creates a default, inside the isolated directory.
   TDirectory.CreateDirectory('Config');
   TFile.WriteAllText(TPath.Combine('Config', 'Config.json'),
-    '{"HttpServer":{"Port":8080,"DefaultOnly":true},"DefaultRoot":true}',
+    '{"Application":{"Environment":"production"},"HttpServer":{"Port":8080,"DefaultOnly":true},"DefaultRoot":true}',
     TEncoding.UTF8);
   Root := TAppOptionsLoader.LoadFromFile(APath);
   try
     CheckPort(Root, 9090);
-    Check(Root.Count = 1, 'LoadFromFile must not merge default root values');
+    Check(Root.Count = 2, 'LoadFromFile must not merge default root values');
     Section := TJSONObject(Root.GetValue('HttpServer'));
     Check(Section.Count = 1, 'LoadFromFile must not merge default section values');
   finally

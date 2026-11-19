@@ -43,10 +43,15 @@ uses
   Http.ParameterBinder,
   Http.ParameterBinder.Port,
   Http.Server.Options,
-  App.Options;
+  Application.Options;
 
 class function THttpComposition.CreateDefaultRouter(const ARoutes: TObjectList<TRouteDescriptor>; const AContainer: TAppContainer): IRouter;
 begin
+  if AContainer = nil then
+    raise EMissingDependencyException.Create('Container is required.');
+
+  AContainer.Prepare;
+
   var DtoBinder := TDtoBinder.Create;
   var BodyBinder := TBodyBinder.Create(DtoBinder);
   var ParameterBinder := TParameterBinder.Create(BodyBinder);
@@ -65,20 +70,28 @@ var
   Port: Integer;
   Environment: string;
 begin
-  var HttpOptions := AContainer.GetOptions<THttpServerOptions>;
-  var AppOptions := AContainer.GetOptions<TApplicationOptions>;
+  if AContainer = nil then
+    raise EMissingDependencyException.Create('Container is required.');
 
+  AContainer.Prepare;
+
+  var HttpOptions := AContainer.GetOptions<THttpServerOptions>;
   try
     Port := HttpOptions.Port;
-    Environment := AppOptions.Environment;
     if (Port < 1) or (Port > 65535) then
       raise EInvalidDependencyException.Create(
         'HttpServer.Port is required and must be an integer between 1 and 65535.'
       );
   finally
     HttpOptions.Free;
+  end;
+
+  var AppOptions := AContainer.GetOptions<TApplicationOptions>;
+  try
+    Environment := AppOptions.Environment;
+  finally
     AppOptions.Free;
-end;
+  end;
 
   Result := THttpServer.Create(
     Port,

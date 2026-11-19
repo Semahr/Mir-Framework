@@ -14,13 +14,53 @@ Dependency injection attribute unit:
 Source/Core/Dependency.Attributes.pas
 ```
 
+## Bootstrap and concurrent publication
+
+Configure the root container on **one bootstrap thread**. Register services, options,
+controllers, middlewares and attribute handlers, configure the options loader, then
+call `Container.Prepare` before publishing the root to request/background workers.
+Publish it using the application's normal thread-start or synchronization mechanism;
+`Prepare` is not a replacement for safe publication of the root reference.
+
+```pascal
+Container := TAppContainer.Create;
+// Register dependencies and configure options here, on the bootstrap thread.
+Container.Prepare;
+// Only now start workers or hand the root to the HTTP request pipeline.
+```
+
+`Prepare` materializes options and freezes registration. It is idempotent: subsequent
+calls reuse the loaded options and do not reload them. It does not eagerly construct
+all singleton services. Lazy resolution (including options access) before `Prepare`
+does not itself freeze dependency registration; this remains a bootstrap-only activity,
+not permission to resolve concurrently while modifying registrations. Options retain
+their own restrictions on replacing a loader after materialization.
+
+After preparation, do not mutate options, dependency descriptors, component registries,
+or routes, even if an exposed object/list/property technically permits mutation.
+Registration APIs reject changes after preparation. Treat the published configuration
+as read-only; do not use descriptor setters to bypass this contract.
+
 ## Dependency lifetimes
 
 Dependencies are application services registered by contract/port.
 
 ### Singleton
 
-One instance is reused for the application lifetime.
+One instance is reused for the application lifetime. Concurrent resolutions publish
+one fully constructed instance. Singleton construction is protected by a root-wide,
+reentrant monitor, allowing a factory to resolve another singleton on the same thread.
+A factory exception or `nil` result is not cached; a later resolution retries construction.
+Factories must clean up any resources they allocate before failing.
+
+Factories execute synchronously on the resolving thread. A singleton factory must not
+start another thread and wait for it to resolve services from the same root: the factory
+holds the singleton monitor, so that pattern can deadlock. Dependency resolution and
+cycle/captive-scope tracking are synchronous, same-thread operations; do not move a
+resolver to another thread or retain it for deferred construction.
+
+Safe publication does **not** make a singleton's mutable state thread-safe. Each service
+must synchronize its own mutable state or be immutable.
 
 ```pascal
 Container.AddSingleton<IClock, TSystemClock>;
@@ -44,18 +84,127 @@ Container.AddTransient<IEmailSender, TSmtpEmailSender>;
 
 ### Factory
 
-Use factories when construction needs custom logic.
+Use factories when construction needs custom logic, configuration values such as
+strings or integers, external library objects, or runtime implementation selection.
+The generic API expresses the lifetime in the method name:
 
 ```pascal
-Container.AddFactory(
-  TypeInfo(IMyService),
+Container.AddSingletonFactory<IMyService, TMyService>(
   function(const Resolve: TDependencyResolver): TObject
   begin
     Result := TMyService.Create;
-  end,
-  dlSingleton
+  end
 );
 ```
+
+The factory receives a `TDependencyResolver` to resolve other registered dependencies.
+`TDependency` can be an interface; only `TImplementation` has a `class` constraint.
+The factory still returns `TObject`: `TImplementation` does not validate or cast
+its result.
+
+- `AddSingletonFactory`: runs once, with the instance reused and owned by the root container. A singleton cannot resolve a scoped dependency during construction.
+- `AddScopedFactory`: runs once per scope; different scopes receive different instances.
+- `AddTransientFactory`: runs on every resolution. Transients resolved from a scope are tracked and freed by that scope.
+
+The original API remains available for compatibility and low-level registration:
+
+```pascal
+Container.AddFactory(TypeInfo(IMyService), Factory, dlScoped);
+```
+
+## Typed root resolution
+
+`TAppContainer` provides `Resolve<T>: T` alongside the existing
+`Resolve(PTypeInfo): TObject` overload:
+
+```pascal
+App.AddSingleton<ILogger, TLogger>;
+App.Prepare;
+App.Resolve<ILogger>; // Ignore the result to warm up the singleton.
+Logger := App.Resolve<ILogger>;
+try
+  // Use Logger while App is alive.
+finally
+  Logger := nil; // Release the interface before App.Free.
+end;
+```
+
+The generic overload accepts registered interfaces and classes. Interfaces are
+queried with `Supports` using the exact requested interface GUID; classes require
+an instance compatible with the requested class. Missing registrations, incompatible
+implementations and unsupported types such as `Resolve<Integer>` are rejected.
+The low-level overload still returns the underlying `TObject` without performing
+this typed interface conversion.
+
+Typed resolution does not change lifetime ownership or make container-owned
+interfaces reference-counted. Use non-reference-counted implementations, such as
+`TComponent` with a `nil` owner, and clear interface variables and interface-valued
+properties before freeing their owning root/scope. Interface references do not
+keep those services alive.
+
+Root resolution rejects scoped services, including aliases, with either overload.
+Use a request scope for scoped dependencies. There is no `Scope.Resolve<T>` API
+at present; scopes retain `Resolve(PTypeInfo): TObject`.
+
+## Interface aliases
+
+An alias exposes an existing principal interface registration through another interface
+contract without creating a second descriptor or an additional owner:
+
+```pascal
+type
+  // Both interfaces declare their own GUID; neither inherits from the other.
+  TService = class(TComponent, IPrimaryService, ISecondaryService)
+    // Implement both contracts. TComponent does not reference-count its lifetime.
+  end;
+
+Container.AddSingleton<IPrimaryService, TService>;
+Container.AddAlias<ISecondaryService, IPrimaryService>;
+// Equivalent low-level overload (use instead, not in addition):
+// Container.AddAlias(TypeInfo(ISecondaryService), TypeInfo(IPrimaryService));
+Container.Prepare;
+```
+
+The first argument is the alias; the second is the principal contract. Both must be
+non-nil interface type information. The principal must already have a direct dependency
+registration. Self-aliases, alias chains, duplicate aliases, and aliases that collide
+with an existing normal registration are rejected. Normal registrations (including
+factories) cannot overwrite an alias either. Register aliases on the bootstrap thread,
+before `Prepare`; both overloads reject registration after preparation. As with other
+registrations, do not mutate aliases concurrently with resolution or preparation.
+
+`GetDescriptor(TypeInfo(ISecondaryService))` returns the principal descriptor, not an
+alias-owned descriptor. Replacing the principal registration on the root **before
+`Prepare`** also changes what its aliases resolve; aliases refer to the principal key,
+not a snapshot of its old descriptor. Do not retain an old descriptor across replacement.
+
+Aliases preserve the principal lifetime and ownership:
+
+- **Singleton:** alias and principal resolve to the same object owned by the root.
+- **Scoped:** both keys share one cache entry in each scope, regardless of which is
+  resolved first; different scopes receive different objects. Root resolution remains
+  invalid for scoped services.
+- **Transient:** every resolution creates a new object, including alias resolutions.
+  Transients resolved through a scope are tracked and freed by that scope.
+
+An alias never owns or separately frees an instance. Resolution through an alias also
+participates in the usual cycle and captive-scope checks. `Resolve(PTypeInfo)` returns
+`TObject` and does not by itself guarantee that the object implements the alias
+contract. `App.Resolve<ISecondaryService>` verifies the alias's exact GUID with
+`Supports`; sharing a descriptor does not bypass that check. Constructor injection
+likewise checks the requested GUID and creates a `TValue` with that exact parameter
+type; an incompatible object is rejected before invoking the constructor.
+
+The cached singleton interface `InstanceValue` (used by options) is preserved for
+the principal contract. It is only reusable for that matching contract, not merely
+because an alias shares its descriptor. Resolving an alias must query its own
+interface rather than reinterpret or replace the principal's cached typed value.
+
+Use container-owned, non-reference-counted implementations such as `TComponent` with
+`nil` as component owner; do not combine component ownership with container ownership.
+Interface references do not extend these objects' lifetimes: release consumers and all
+references before disposing their owning scope/root. No reference may survive its
+owner, and the root must outlive its scopes.
 
 ## Constructor injection
 
@@ -153,6 +302,27 @@ The router creates a scope per request and passes it through `TContext`.
 
 Singleton dependencies are resolved from the root container. Scoped dependencies must be resolved from a request scope.
 
+A scope is **not shareable concurrently**. Its instance cache and transient ownership
+are local to one request/operation; different workers may use different scopes at the
+same time. Repeated resolution within one scope returns the same scoped instance;
+different live scopes receive different instances. Dispose the scope only after all
+work using its services has completed.
+
+The root must outlive every scope and all workers resolving through it. For background
+work, create and dispose a dedicated scope for that operation; never capture a request
+scope or request-scoped service for work that outlives the request.
+
+A singleton cannot capture a scoped service during construction, directly or through
+transient/factory resolutions. This also applies when a factory closes over an existing
+scope and requests an already cached scoped instance. Same-thread cycles are rejected,
+and resolution tracking unwinds after exceptions so later resolutions can retry.
+These checks do not replace correct application ownership or detect arbitrary references
+assigned after construction.
+
+These guarantees concern the dependency-container core. They are not a complete
+thread-safety audit of the router, HTTP server, logging, middleware, or other framework
+components.
+
 ## HTTP framework components
 
 These are not dependency registrations:
@@ -171,6 +341,9 @@ They are concrete framework components. The framework creates them with construc
 Container.AddSingleton<IDependency, TImplementation>;
 Container.AddScoped<IDependency, TImplementation>;
 Container.AddTransient<IDependency, TImplementation>;
+Container.AddSingletonFactory<IDependency, TImplementation>(Factory);
+Container.AddScopedFactory<IDependency, TImplementation>(Factory);
+Container.AddTransientFactory<IDependency, TImplementation>(Factory);
 Container.AddFactory(TypeInfo(IDependency), Factory, dlScoped);
 
 Container.AddController(TControllerClass);
@@ -183,6 +356,10 @@ Container.AddAttributeHandler(THandlerClass);
 Container.AddAttributeHandlers([TOneHandler, TAnotherHandler]);
 
 Container.AddOptions<TOptions>;
+Container.Prepare; // Finish single-threaded bootstrap before publication.
+Container.Resolve<ILogger>; // Optional singleton warmup; result may be ignored.
+Logger := Container.Resolve<ILogger>;
+ServiceObject := Container.Resolve(TypeInfo(ILogger)); // Existing TObject overload.
 ```
 
 ## Common errors

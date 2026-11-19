@@ -105,10 +105,11 @@ begin
 
     dlScoped:
       begin
-        if not FScopedInstances.TryGetValue(ATypeInfo, Result) then
+        TAppContainer(FRoot).CheckScopedResolution(ATypeInfo);
+        if not FScopedInstances.TryGetValue(Descriptor.DependencyType, Result) then
         begin
           Result := TAppContainer(FRoot).CreateInstance(Descriptor, Self);
-          FScopedInstances.Add(ATypeInfo, Result);
+          FScopedInstances.Add(Descriptor.DependencyType, Result);
         end;
 
         Exit;

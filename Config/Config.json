@@ -1,4 +1,7 @@
 {
+  "Application": {
+    "Environment": "production"
+  },
   "HttpServer": {
     "Port": 4000
   },

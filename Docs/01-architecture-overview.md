@@ -17,7 +17,7 @@ Config/       Default runtime configuration files
 
 The framework provides:
 
-- a dependency container with singleton, scoped, transient and factory registrations;
+- a dependency container with singleton, scoped and transient registrations;
 - request scopes;
 - constructor injection;
 - attribute-based controllers and routes;

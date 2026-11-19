@@ -13,9 +13,6 @@ type
     dlScoped
   );
 
-  TDependencyResolver = reference to function(const ATypeInfo: PTypeInfo): TObject;
-
-  TDependencyFactory = reference to function(const AResolve: TDependencyResolver): TObject;
 
   /// <summary>
   /// Base descriptor for a dependency registration.
@@ -28,7 +25,7 @@ type
   private
     FDependencyType: PTypeInfo;
     FImplementationType: TClass;
-    FFactory: TDependencyFactory;
+
   public
     /// <summary>
     /// Creates the common metadata for a dependency registration.
@@ -37,16 +34,11 @@ type
     /// The type requested by consumers and used as the container lookup key.
     /// </param>
     /// <param name="AImplementationType">
-    /// Concrete class to instantiate when no custom factory is provided.
-    /// </param>
-    /// <param name="AFactory">
-    /// Optional custom creation function. When assigned, the container uses it instead of creating
-    /// ImplementationType directly.
+    /// Concrete class to instantiate.
     /// </param>
     constructor Create(
       const ADependencyType: PTypeInfo;
-      const AImplementationType: TClass;
-      const AFactory: TDependencyFactory
+      const AImplementationType: TClass
     );
 
     /// <summary>
@@ -60,14 +52,10 @@ type
     property DependencyType: PTypeInfo read FDependencyType;
 
     /// <summary>
-    /// Concrete class to instantiate when the dependency is resolved without a custom factory.
+    /// Concrete class to instantiate when the dependency is resolved.
     /// </summary>
     property ImplementationType: TClass read FImplementationType;
 
-    /// <summary>
-    /// Optional custom creation function used to build the dependency instance.
-    /// </summary>
-    property Factory: TDependencyFactory read FFactory;
   end;
 
   /// <summary>
@@ -80,17 +68,20 @@ type
   TSingletonDependencyDescriptor = class(TDependencyDescriptor)
   private
     FInstance: TObject;
+    FKeepAlive: IInterface;
     FOwnsInstance: Boolean;
     FHasInstanceValue: Boolean;
     FInstanceValue: TValue;
+
+    procedure SetInstance(const AInstance: TObject);
+    procedure SetOwnsInstance(const AValue: Boolean);
   public
     /// <summary>
     /// Creates a singleton descriptor without an already-created instance.
     /// </summary>
     constructor Create(
       const ADependencyType: PTypeInfo;
-      const AImplementationType: TClass;
-      const AFactory: TDependencyFactory
+      const AImplementationType: TClass
     );
     destructor Destroy; override;
 
@@ -102,7 +93,7 @@ type
     /// <summary>
     /// Cached singleton instance. It is normally created lazily on the first Resolve call.
     /// </summary>
-    property Instance: TObject read FInstance write FInstance;
+    property Instance: TObject read FInstance write SetInstance;
 
     /// <summary>
     /// Indicates whether InstanceValue contains an exact RTTI value for the dependency type.
@@ -117,7 +108,7 @@ type
     /// <summary>
     /// Indicates whether this descriptor owns and should free Instance when destroyed.
     /// </summary>
-    property OwnsInstance: Boolean read FOwnsInstance write FOwnsInstance;
+    property OwnsInstance: Boolean read FOwnsInstance write SetOwnsInstance;
   end;
 
   /// <summary>
@@ -148,34 +139,96 @@ type
 
 implementation
 
+uses
+  AppExceptions;
+
 constructor TDependencyDescriptor.Create(
   const ADependencyType: PTypeInfo;
-  const AImplementationType: TClass;
-  const AFactory: TDependencyFactory
+  const AImplementationType: TClass
 );
 begin
   inherited Create;
   FDependencyType := ADependencyType;
   FImplementationType := AImplementationType;
-  FFactory := AFactory;
 end;
 
 constructor TSingletonDependencyDescriptor.Create(
   const ADependencyType: PTypeInfo;
-  const AImplementationType: TClass;
-  const AFactory: TDependencyFactory
+  const AImplementationType: TClass
 );
 begin
-  inherited Create(ADependencyType, AImplementationType, AFactory);
+  inherited Create(ADependencyType, AImplementationType);
   FOwnsInstance := True;
 end;
 
 destructor TSingletonDependencyDescriptor.Destroy;
+var
+  Instance: TObject;
 begin
+  Instance := FInstance;
+  FInstance := nil;
+
+  FInstanceValue := TValue.Empty;
+  FHasInstanceValue := False;
+
   if FOwnsInstance then
-    FInstance.Free;
+  begin
+    if FKeepAlive <> nil then
+      FKeepAlive := nil
+    else
+      Instance.Free;
+  end
+  else
+    FKeepAlive := nil;
 
   inherited;
+end;
+
+procedure TSingletonDependencyDescriptor.SetInstance(
+  const AInstance: TObject
+);
+var
+  KeepAlive: IInterface;
+  Contract: IInterface;
+begin
+  if AInstance = nil then
+    raise EInvalidDependencyException.Create('Singleton instance cannot be nil.');
+
+  if FInstance <> nil then
+    raise EInvalidDependencyException.Create('Singleton instance is already initialized.');
+
+  if DependencyType = nil then
+    raise EInvalidDependencyException.Create('Singleton dependency type cannot be nil.');
+
+  if FOwnsInstance and (AInstance is TInterfacedObject) then
+  begin
+    if not Supports(AInstance, IInterface, KeepAlive) then
+      raise EInvalidDependencyException.Create('Unable to retain singleton interface.');
+  end;
+
+  if DependencyType.Kind = tkInterface then
+  begin
+    if not Supports(
+      AInstance,
+      GetTypeData(DependencyType).Guid,
+      Contract
+    ) then
+      raise EInvalidDependencyException.CreateFmt(
+        'Singleton "%s" does not implement the registered interface "%s".',
+        [AInstance.ClassName, DependencyType.Name]
+      );
+  end;
+
+  FKeepAlive := KeepAlive;
+  FInstance := AInstance;
+end;
+
+procedure TSingletonDependencyDescriptor.SetOwnsInstance(const AValue: Boolean);
+begin
+  if FInstance <> nil then
+    raise EInvalidDependencyException.Create('Singleton ownership cannot change after initialization.');
+
+  FOwnsInstance := AValue;
 end;
 
 function TSingletonDependencyDescriptor.GetLifetime: TDependencyLifetime;

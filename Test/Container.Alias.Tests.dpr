@@ -40,7 +40,7 @@ type
   // TComponent interfaces do not transfer lifetime ownership to interface references.
   TService = class(TComponent, IPrimary, IAlias, ISecondAlias)
   public
-    class var Destroyed: Integer;
+    class var Destroyed, Created: Integer;
     [Inject]
     constructor Create; reintroduce;
     function PrimaryValue: Integer;
@@ -48,6 +48,14 @@ type
     function SecondAliasValue: Integer;
     destructor Destroy; override;
   end;
+
+  TCycleService = class(TComponent, IPrimary)
+  public
+    constructor Create(const AAlias: IAlias); reintroduce;
+    function PrimaryValue: Integer;
+  end;
+
+  TReplacementService = class(TService);
 
   TConsumer = class(TComponent)
   public
@@ -67,6 +75,7 @@ type
 constructor TService.Create;
 begin
   inherited Create(nil);
+  Inc(Created);
 end;
 
 function TService.SecondAliasValue: Integer;
@@ -88,6 +97,16 @@ destructor TService.Destroy;
 begin
   Inc(Destroyed);
   inherited;
+end;
+
+constructor TCycleService.Create(const AAlias: IAlias);
+begin
+  inherited Create(nil);
+end;
+
+function TCycleService.PrimaryValue: Integer;
+begin
+  Result := 17;
 end;
 
 constructor TConsumer.Create(AOwner: TComponent);
@@ -151,18 +170,12 @@ var
   Primary: IPrimary;
   Alias: IAlias;
   SupportedAlias: IAlias;
-  Calls: Integer;
 begin
   TService.Destroyed := 0;
-  Calls := 0;
+  TService.Created := 0;
   Root := NewContainer;
   try
-    Root.AddSingletonFactory<IPrimary, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Inc(Calls);
-        Result := TService.Create;
-      end);
+    Root.AddSingleton<IPrimary, TService>;
     Root.AddAlias<IAlias, IPrimary>;
     Root.AddAlias<ISecondAlias, IPrimary>;
     Root.AddTransient<TConsumer, TConsumer>;
@@ -192,7 +205,7 @@ begin
       Check(Consumer.Alias.AliasValue = 29, 'Exact alias TValue injection');
       Consumer := TConsumer(Scope.Resolve(TypeInfo(TConsumer)));
       Check(Consumer.Alias.AliasValue = 29, 'Repeated alias injection');
-      Check(Calls = 1, 'Alias must not construct another singleton');
+      Check(TService.Created = 1, 'Alias must not construct another singleton');
     finally
       SupportedAlias := nil;
       Alias := nil;
@@ -264,19 +277,13 @@ begin
   Root := NewContainer;
   try
     Root.AddSingleton<TService, TService>;
-    // Factory implementations are not constrained to return the advertised class.
-    Root.AddSingletonFactory<TConsumer, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Result := TService.Create;
-      end);
+
     Root.Prepare;
     Service := Root.Resolve<TService>;
     Check(Service <> nil, 'Registered class must resolve');
     Check(Service = Root.Resolve(TypeInfo(TService)), 'Generic class identity');
     Check(Service.PrimaryValue = 17, 'Generic class methods');
-    ExpectFailure(procedure begin Root.Resolve<TConsumer>; end,
-      'Generic class must validate actual instance type');
+
     ExpectFailure(procedure begin Root.Resolve<Integer>; end,
       'Generic resolution must reject unsupported types');
     ExpectFailure(procedure begin Root.Resolve<IMissing>; end,
@@ -291,18 +298,12 @@ var
   Root: TAppContainer;
   First, Second: TContainerScope;
   A, B: TObject;
-  Calls: Integer;
 begin
-  Calls := 0;
+  TService.Created := 0;
   TService.Destroyed := 0;
   Root := NewContainer;
   try
-    Root.AddScopedFactory<IPrimary, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Inc(Calls);
-        Result := TService.Create;
-      end);
+    Root.AddScoped<IPrimary, TService>;
     Root.AddAlias(TypeInfo(IAlias), TypeInfo(IPrimary));
     Root.Prepare;
     First := Root.CreateScope;
@@ -314,7 +315,7 @@ begin
         B := Second.Resolve(TypeInfo(IPrimary));
         Check(B = Second.Resolve(TypeInfo(IAlias)), 'Principal-first scoped cache');
         Check(A <> B, 'Different scopes must have different instances');
-        Check(Calls = 2, 'Only one construction per scope');
+        Check(TService.Created = 2, 'Only one construction per scope');
         ExpectFailure(procedure begin Root.Resolve<IPrimary>; end,
           'Generic root must reject scoped principal resolution');
         ExpectFailure(procedure begin Root.Resolve<IAlias>; end,
@@ -340,18 +341,12 @@ var
   Root: TAppContainer;
   Scope: TContainerScope;
   A, B, C: TObject;
-  Calls: Integer;
 begin
-  Calls := 0;
+  TService.Created := 0;
   TService.Destroyed := 0;
   Root := NewContainer;
   try
-    Root.AddTransientFactory<IPrimary, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Inc(Calls);
-        Result := TService.Create;
-      end);
+    Root.AddTransient<IPrimary, TService>;
     Root.AddAlias<IAlias, IPrimary>;
     Root.Prepare;
     Scope := Root.CreateScope;
@@ -360,7 +355,7 @@ begin
       B := Scope.Resolve(TypeInfo(IPrimary));
       C := Scope.Resolve(TypeInfo(IAlias));
       Check((A <> B) and (A <> C) and (B <> C), 'Transient aliases must not cache');
-      Check(Calls = 3, 'Transient factory must run on every resolution');
+      Check(TService.Created = 3, 'Transient constructor must run on every resolution');
       Check(TService.Destroyed = 0, 'Scope must retain transients until disposal');
     finally
       Scope.Free;
@@ -399,11 +394,7 @@ begin
     ExpectFailure(procedure begin Root.AddSingleton<IAlias, TService>; end, 'Singleton overwrite');
     ExpectFailure(procedure begin Root.AddScoped<IAlias, TService>; end, 'Scoped overwrite');
     ExpectFailure(procedure begin Root.AddTransient<IAlias, TService>; end, 'Transient overwrite');
-    ExpectFailure(procedure begin
-      Root.AddFactory(TypeInfo(IAlias),
-        function(const Resolve: TDependencyResolver): TObject
-        begin Result := TService.Create; end, dlTransient);
-    end, 'Factory overwrite');
+
     Check(Root.GetDescriptor(TypeInfo(IAlias)) = Root.GetDescriptor(TypeInfo(IPrimary)),
       'Rejected registrations must preserve alias');
     Root.Prepare;
@@ -445,29 +436,14 @@ end;
 procedure TestCycleRetry;
 var
   Root: TAppContainer;
-  Cycle: Boolean;
-  Calls: Integer;
-  Service: TObject;
 begin
-  Cycle := True;
-  Calls := 0;
   Root := NewContainer;
   try
-    Root.AddSingletonFactory<IPrimary, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Inc(Calls);
-        if Cycle then Resolve(TypeInfo(IAlias));
-        Result := TService.Create;
-      end);
+    Root.AddSingleton<IPrimary, TCycleService>;
     Root.AddAlias<IAlias, IPrimary>;
     Root.Prepare;
     ExpectFailure(procedure begin Root.Resolve(TypeInfo(IPrimary)); end, 'Cycle via alias');
     ExpectFailure(procedure begin Root.Resolve(TypeInfo(IAlias)); end, 'Repeated alias cycle');
-    Cycle := False;
-    Service := Root.Resolve(TypeInfo(IAlias));
-    Check(Service = Root.Resolve(TypeInfo(IPrimary)), 'Cycle cleanup must allow cached retry');
-    Check(Calls = 3, 'Failed cycle must not cache or leave resolution frames');
   finally
     Root.Free;
   end;
@@ -476,25 +452,19 @@ end;
 procedure TestPrincipalReplacement;
 var
   Root: TAppContainer;
-  Calls: Integer;
 begin
-  Calls := 0;
   Root := NewContainer;
   try
     Root.AddSingleton<IPrimary, TService>;
     Root.AddAlias<IAlias, IPrimary>;
-    Root.AddSingletonFactory<IPrimary, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Inc(Calls);
-        Result := TService.Create;
-      end);
+    Root.AddSingleton<IPrimary, TReplacementService>;
     Check(Root.GetDescriptor(TypeInfo(IAlias)) = Root.GetDescriptor(TypeInfo(IPrimary)),
       'Alias must follow replaced principal descriptor');
     Root.Prepare;
     Check(Root.Resolve(TypeInfo(IAlias)) = Root.Resolve(TypeInfo(IPrimary)),
       'Alias must resolve replacement');
-    Check(Calls = 1, 'Replacement factory must be used');
+    Check(Root.Resolve(TypeInfo(IPrimary)) is TReplacementService,
+      'Replacement class must be used');
   finally
     Root.Free;
   end;

@@ -49,15 +49,13 @@ Dependencies are application services registered by contract/port.
 
 One instance is reused for the application lifetime. Concurrent resolutions publish
 one fully constructed instance. Singleton construction is protected by a root-wide,
-reentrant monitor, allowing a factory to resolve another singleton on the same thread.
-A factory exception or `nil` result is not cached; a later resolution retries construction.
-Factories must clean up any resources they allocate before failing.
+reentrant monitor, allowing constructor injection of another singleton on the same thread.
+A constructor failure is not cached; a later resolution retries construction.
 
-Factories execute synchronously on the resolving thread. A singleton factory must not
-start another thread and wait for it to resolve services from the same root: the factory
-holds the singleton monitor, so that pattern can deadlock. Dependency resolution and
-cycle/captive-scope tracking are synchronous, same-thread operations; do not move a
-resolver to another thread or retain it for deferred construction.
+Construction executes synchronously on the resolving thread. A singleton constructor must
+not start another thread and wait for it to resolve services from the same root: it holds
+the singleton monitor, so that pattern can deadlock. Dependency resolution and
+cycle/captive-scope tracking are synchronous, same-thread operations.
 
 Safe publication does **not** make a singleton's mutable state thread-safe. Each service
 must synchronize its own mutable state or be immutable.
@@ -82,35 +80,6 @@ A new instance is created every time the dependency is resolved.
 Container.AddTransient<IEmailSender, TSmtpEmailSender>;
 ```
 
-### Factory
-
-Use factories when construction needs custom logic, configuration values such as
-strings or integers, external library objects, or runtime implementation selection.
-The generic API expresses the lifetime in the method name:
-
-```pascal
-Container.AddSingletonFactory<IMyService, TMyService>(
-  function(const Resolve: TDependencyResolver): TObject
-  begin
-    Result := TMyService.Create;
-  end
-);
-```
-
-The factory receives a `TDependencyResolver` to resolve other registered dependencies.
-`TDependency` can be an interface; only `TImplementation` has a `class` constraint.
-The factory still returns `TObject`: `TImplementation` does not validate or cast
-its result.
-
-- `AddSingletonFactory`: runs once, with the instance reused and owned by the root container. A singleton cannot resolve a scoped dependency during construction.
-- `AddScopedFactory`: runs once per scope; different scopes receive different instances.
-- `AddTransientFactory`: runs on every resolution. Transients resolved from a scope are tracked and freed by that scope.
-
-The original API remains available for compatibility and low-level registration:
-
-```pascal
-Container.AddFactory(TypeInfo(IMyService), Factory, dlScoped);
-```
 
 ## Typed root resolution
 
@@ -168,8 +137,8 @@ Container.Prepare;
 The first argument is the alias; the second is the principal contract. Both must be
 non-nil interface type information. The principal must already have a direct dependency
 registration. Self-aliases, alias chains, duplicate aliases, and aliases that collide
-with an existing normal registration are rejected. Normal registrations (including
-factories) cannot overwrite an alias either. Register aliases on the bootstrap thread,
+with an existing normal registration are rejected. Normal registrations cannot
+overwrite an alias either. Register aliases on the bootstrap thread,
 before `Prepare`; both overloads reject registration after preparation. As with other
 registrations, do not mutate aliases concurrently with resolution or preparation.
 
@@ -313,8 +282,7 @@ work, create and dispose a dedicated scope for that operation; never capture a r
 scope or request-scoped service for work that outlives the request.
 
 A singleton cannot capture a scoped service during construction, directly or through
-transient/factory resolutions. This also applies when a factory closes over an existing
-scope and requests an already cached scoped instance. Same-thread cycles are rejected,
+transient dependencies. Same-thread cycles are rejected,
 and resolution tracking unwinds after exceptions so later resolutions can retry.
 These checks do not replace correct application ownership or detect arbitrary references
 assigned after construction.
@@ -341,10 +309,7 @@ They are concrete framework components. The framework creates them with construc
 Container.AddSingleton<IDependency, TImplementation>;
 Container.AddScoped<IDependency, TImplementation>;
 Container.AddTransient<IDependency, TImplementation>;
-Container.AddSingletonFactory<IDependency, TImplementation>(Factory);
-Container.AddScopedFactory<IDependency, TImplementation>(Factory);
-Container.AddTransientFactory<IDependency, TImplementation>(Factory);
-Container.AddFactory(TypeInfo(IDependency), Factory, dlScoped);
+
 
 Container.AddController(TControllerClass);
 Container.AddControllers([TOneController, TAnotherController]);

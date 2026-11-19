@@ -1,6 +1,7 @@
 program ContainerConcurrencyTests;
 
 {$APPTYPE CONSOLE}
+{$RTTI EXPLICIT METHODS([vcPublic]) PROPERTIES([]) FIELDS([])}
 
 uses
   System.SysUtils,
@@ -24,6 +25,51 @@ type
   TScopedService = class(TService);
   TBridge = class(TService);
 
+  TPublishedService = class(TService)
+  public
+    constructor Create;
+  end;
+
+  TCountedScopedService = class(TScopedService)
+  public
+    constructor Create;
+  end;
+
+  TRetryService = class(TService)
+  public
+    constructor Create(const AOther: TOther);
+  end;
+
+  TCycleService = class(TService)
+  public
+    constructor Create;
+  end;
+
+  TCycleOther = class(TOther)
+  public
+    constructor Create;
+  end;
+
+  TSingletonCycleService = class(TService)
+  public
+    constructor Create;
+  end;
+
+  TSingletonCycleOther = class(TOther)
+  public
+    constructor Create;
+  end;
+
+  TCaptiveService = class(TService)
+  public
+    constructor Create;
+  end;
+
+  TCaptiveBridge = class(TBridge)
+  public
+    constructor Create;
+  end;
+
   TWorker = class(TThread)
   private
     FStart: TEvent;
@@ -34,6 +80,79 @@ type
     Error: string;
     constructor Create(const AStart: TEvent; const AAction: TProc);
   end;
+
+var
+  PublicationCalls, ScopedConstructionCalls, RetryCalls: Integer;
+  FixtureRoot, FixtureOtherRoot: TAppContainer;
+  FixtureScope: TContainerScope;
+  FixtureCycle, FixtureIndirect: Boolean;
+
+constructor TPublishedService.Create;
+begin
+  inherited Create;
+  TInterlocked.Increment(PublicationCalls);
+  TThread.Sleep(20);
+  Ready := 42;
+end;
+
+constructor TCountedScopedService.Create;
+begin
+  inherited Create;
+  TInterlocked.Increment(ScopedConstructionCalls);
+end;
+
+constructor TRetryService.Create(const AOther: TOther);
+begin
+  inherited Create;
+  if AOther = nil then
+    raise Exception.Create('Reentrant singleton injection failed');
+  Inc(RetryCalls);
+  if RetryCalls = 1 then
+    raise Exception.Create('Expected constructor failure');
+end;
+
+constructor TCycleService.Create;
+begin
+  inherited Create;
+  if FixtureOtherRoot.Resolve(TypeInfo(TService)) = nil then
+    raise Exception.Create('Resolution frames must be isolated by root');
+  if FixtureCycle then
+    FixtureRoot.Resolve(TypeInfo(TOther));
+end;
+
+constructor TCycleOther.Create;
+begin
+  inherited Create;
+  FixtureRoot.Resolve(TypeInfo(TService));
+end;
+
+constructor TSingletonCycleService.Create;
+begin
+  inherited Create;
+  FixtureRoot.Resolve(TypeInfo(TOther));
+end;
+
+constructor TSingletonCycleOther.Create;
+begin
+  inherited Create;
+  if FixtureCycle then
+    FixtureRoot.Resolve(TypeInfo(TService));
+end;
+
+constructor TCaptiveService.Create;
+begin
+  inherited Create;
+  if FixtureIndirect then
+    FixtureScope.Resolve(TypeInfo(TBridge))
+  else
+    FixtureScope.Resolve(TypeInfo(TScopedService));
+end;
+
+constructor TCaptiveBridge.Create;
+begin
+  inherited Create;
+  FixtureScope.Resolve(TypeInfo(TScopedService));
+end;
 
 constructor TWorker.Create(const AStart: TEvent; const AAction: TProc);
 begin
@@ -156,11 +275,7 @@ begin
         Result.AddPair('HttpServer',
           TJSONObject.Create.AddPair('Port', TJSONNumber.Create(8080)));
       end);
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Result := TService.Create;
-      end);
+    Root.AddSingleton<TService, TService>;
     Root.Resolve(TypeInfo(TService));
     // Neither lazy service resolution nor lazy options loading freezes registration.
     Options := Root.GetOptions<TApplicationOptions>;
@@ -176,11 +291,7 @@ begin
     ExpectFrozen(procedure begin Root.AddController(TService); end);
     ExpectFrozen(procedure begin Root.Use(TService); end);
     ExpectFrozen(procedure begin Root.AddAttributeHandler(TService); end);
-    ExpectFrozen(procedure begin
-      Root.AddFactory(TypeInfo(TBridge),
-        function(const Resolve: TDependencyResolver): TObject
-        begin Result := TBridge.Create; end, dlSingleton);
-    end);
+
   finally
     Root.Free;
   end;
@@ -239,9 +350,7 @@ begin
     end;
     Check(Failed, 'Prepare must propagate options loader failure');
     Check(Calls = 1, 'First Prepare must invoke loader once');
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin Result := TService.Create; end);
+    Root.AddSingleton<TService, TService>;
     Root.Prepare;
     Root.Prepare;
     Check(Calls = 2, 'Prepare must retry failed loading and cache successful loading');
@@ -256,30 +365,15 @@ end;
 procedure TestPublicationAndScopes;
 var
   Root: TAppContainer;
-  Calls, ScopedCalls: Integer;
   Published: Pointer;
 begin
-  Calls := 0;
-  ScopedCalls := 0;
+  PublicationCalls := 0;
+  ScopedConstructionCalls := 0;
   Published := nil;
   Root := NewContainer;
   try
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      var Service: TService;
-      begin
-        TInterlocked.Increment(Calls);
-        Service := TService.Create;
-        TThread.Sleep(20);
-        Service.Ready := 42;
-        Result := Service;
-      end);
-    Root.AddScopedFactory<TScopedService, TScopedService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        TInterlocked.Increment(ScopedCalls);
-        Result := TScopedService.Create;
-      end);
+    Root.AddSingleton<TService, TPublishedService>;
+    Root.AddScoped<TScopedService, TCountedScopedService>;
     Root.Prepare;
     RunParallel(
       procedure
@@ -311,8 +405,8 @@ begin
           First.Free;
         end;
       end);
-    Check(Calls = 1, 'Concurrent singleton factory must execute exactly once');
-    Check(ScopedCalls = 24, 'Each worker must construct exactly two scoped instances');
+    Check(PublicationCalls = 1, 'Concurrent singleton constructor must execute exactly once');
+    Check(ScopedConstructionCalls = 24, 'Each worker must construct exactly two scoped instances');
   finally
     Root.Free;
   end;
@@ -321,40 +415,25 @@ end;
 procedure TestReentrancyAndRetry;
 var
   Root: TAppContainer;
-  Calls: Integer;
   Instance: TObject;
 begin
   Root := NewContainer;
-  Calls := 0;
+  RetryCalls := 0;
   try
-    Root.AddSingletonFactory<TOther, TOther>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin Result := TOther.Create; end);
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Inc(Calls);
-        Check(Resolve(TypeInfo(TOther)) <> nil, 'Reentrant singleton resolution failed');
-        if Calls = 1 then
-          raise Exception.Create('Expected factory failure');
-        if Calls = 2 then
-          Exit(nil);
-        Result := TService.Create;
-      end);
+    Root.AddSingleton<TOther, TOther>;
+    Root.AddSingleton<TService, TRetryService>;
     Root.Prepare;
     try
       Root.Resolve(TypeInfo(TService));
       Check(False, 'First singleton resolution must fail');
     except
       on E: Exception do
-        Check(E.Message = 'Expected factory failure', 'Unexpected factory exception: ' + E.Message);
+        Check(E.Message = 'Expected constructor failure', 'Unexpected constructor exception: ' + E.Message);
     end;
-    ExpectMissing(procedure begin Root.Resolve(TypeInfo(TService)); end,
-      'Nil singleton result must fail');
     Instance := Root.Resolve(TypeInfo(TService));
     Check(Instance <> nil, 'Failed singleton must be retried');
     Check(Root.Resolve(TypeInfo(TService)) = Instance, 'Successful retry must be cached');
-    Check(Calls = 3, 'Failures/nil must not be cached; successful result must be cached');
+    Check(RetryCalls = 2, 'Failed construction must not be cached; successful result must be cached');
   finally
     Root.Free;
   end;
@@ -363,39 +442,27 @@ end;
 procedure TestCyclesAndCleanup;
 var
   Root, OtherRoot: TAppContainer;
-  Cycle: Boolean;
 begin
   Root := NewContainer;
   OtherRoot := NewContainer;
-  Cycle := True;
+  FixtureRoot := Root;
+  FixtureOtherRoot := OtherRoot;
+  FixtureCycle := True;
   try
-    OtherRoot.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin Result := TService.Create; end);
+    OtherRoot.AddSingleton<TService, TService>;
     OtherRoot.Prepare;
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Check(OtherRoot.Resolve(TypeInfo(TService)) <> nil,
-          'Resolution frames must be isolated by root');
-        if Cycle then
-          Resolve(TypeInfo(TOther));
-        Result := TService.Create;
-      end);
-    Root.AddTransientFactory<TOther, TOther>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Resolve(TypeInfo(TService));
-        Result := TOther.Create;
-      end);
+    Root.AddSingleton<TService, TCycleService>;
+    Root.AddTransient<TOther, TCycleOther>;
     Root.Prepare;
     ExpectMissing(procedure begin Root.Resolve(TypeInfo(TService)); end,
       'Indirect singleton/transient cycle must fail');
     ExpectMissing(procedure begin Root.Resolve(TypeInfo(TService)); end,
       'Repeated cycle must fail without leaving stale resolution frames');
-    Cycle := False;
+    FixtureCycle := False;
     Check(Root.Resolve(TypeInfo(TService)) <> nil, 'Frames must unwind after cycle exception');
   finally
+    FixtureRoot := nil;
+    FixtureOtherRoot := nil;
     Root.Free;
     OtherRoot.Free;
   end;
@@ -404,31 +471,20 @@ end;
 procedure TestSingletonCycleAndCleanup;
 var
   Root: TAppContainer;
-  Cycle: Boolean;
   Instance: TObject;
 begin
   Root := NewContainer;
-  Cycle := True;
+  FixtureRoot := Root;
+  FixtureCycle := True;
   try
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Resolve(TypeInfo(TOther));
-        Result := TService.Create;
-      end);
-    Root.AddSingletonFactory<TOther, TOther>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        if Cycle then
-          Resolve(TypeInfo(TService));
-        Result := TOther.Create;
-      end);
+    Root.AddSingleton<TService, TSingletonCycleService>;
+    Root.AddSingleton<TOther, TSingletonCycleOther>;
     Root.Prepare;
     ExpectMissing(procedure begin Root.Resolve(TypeInfo(TService)); end,
       'Indirect singleton/singleton cycle must fail');
     ExpectMissing(procedure begin Root.Resolve(TypeInfo(TOther)); end,
       'Singleton cycle must unwind frames for both registrations');
-    Cycle := False;
+    FixtureCycle := False;
     Instance := Root.Resolve(TypeInfo(TService));
     Check(Instance <> nil, 'Singleton cycle must allow retry after exception');
     Check(Root.Resolve(TypeInfo(TService)) = Instance,
@@ -436,6 +492,7 @@ begin
     Check(Root.Resolve(TypeInfo(TOther)) <> nil,
       'Nested singleton must be available after cycle recovery');
   finally
+    FixtureRoot := nil;
     Root.Free;
   end;
 end;
@@ -445,41 +502,28 @@ var
   Root: TAppContainer;
   Scope: TContainerScope;
   Cached: TObject;
-  Indirect: Boolean;
 begin
   Root := NewContainer;
   Scope := nil;
-  Indirect := False;
+  FixtureScope := nil;
+  FixtureIndirect := False;
   try
-    Root.AddScopedFactory<TScopedService, TScopedService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin Result := TScopedService.Create; end);
-    Root.AddTransientFactory<TBridge, TBridge>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        Scope.Resolve(TypeInfo(TScopedService));
-        Result := TBridge.Create;
-      end);
-    Root.AddSingletonFactory<TService, TService>(
-      function(const Resolve: TDependencyResolver): TObject
-      begin
-        if Indirect then
-          Scope.Resolve(TypeInfo(TBridge))
-        else
-          Scope.Resolve(TypeInfo(TScopedService));
-        Result := TService.Create;
-      end);
+    Root.AddScoped<TScopedService, TScopedService>;
+    Root.AddTransient<TBridge, TCaptiveBridge>;
+    Root.AddSingleton<TService, TCaptiveService>;
     Root.Prepare;
     Scope := Root.CreateScope;
+    FixtureScope := Scope;
     Cached := Scope.Resolve(TypeInfo(TScopedService));
     ExpectMissing(procedure begin Root.Resolve(TypeInfo(TService)); end,
       'Singleton must reject cached scoped service through captured scope');
-    Indirect := True;
+    FixtureIndirect := True;
     ExpectMissing(procedure begin Root.Resolve(TypeInfo(TService)); end,
-      'Singleton must reject indirect cached scoped capture through transient factory');
+      'Singleton must reject indirect cached scoped capture through transient constructor');
     Check(Scope.Resolve(TypeInfo(TScopedService)) = Cached,
       'Failed captive resolution must unwind frames and preserve scoped cache');
   finally
+    FixtureScope := nil;
     Scope.Free;
     Root.Free;
   end;
